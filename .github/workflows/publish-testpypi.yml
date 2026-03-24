@@ -34,14 +34,31 @@ jobs:
         run: uv venv
 
       - name: Install test dependencies
-        run: >
-          uv pip install
-          --python .venv/bin/python
-          --default-index https://pypi.org/simple
-          --index https://test.pypi.org/simple/
-          --no-sources
-          --editable '.[dev]'
-          twine
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          dependencies = [
+              dependency
+              for dependency in pyproject["project"]["dependencies"]
+              if not dependency.startswith("dl-core")
+          ]
+          dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
+          Path("requirements-ci.txt").write_text(
+              "\n".join([*dependencies, *dev_dependencies, "twine"]) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          uv pip install --python .venv/bin/python -r requirements-ci.txt
+          uv pip install \
+            --python .venv/bin/python \
+            --default-index https://pypi.org/simple \
+            --index https://test.pypi.org/simple/ \
+            --index-strategy unsafe-best-match \
+            dl-core
+          uv pip install --python .venv/bin/python --no-deps --editable .
 
       - name: Run tests
         run: .venv/bin/python -m pytest
