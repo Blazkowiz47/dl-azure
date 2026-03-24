@@ -41,7 +41,7 @@ jobs:
           --index https://test.pypi.org/simple/
           --no-sources
           --editable .
-          --extra dev
+          --group dev
           twine
 
       - name: Run tests
