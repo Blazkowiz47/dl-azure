@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dl-azure"
+version = "0.1.0"
+description = "Generic Azure integration layer for dl-core."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dl-core>=0.1.7",
+    "azure-ai-ml==1.31.0",
+    "azure-identity==1.25.1",
+    "azure-storage-blob==12.19.0",
+    "azureml-core==1.60.0.post1",
+    "azureml-mlflow==1.60.0.post1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.entry-points."dl_core.init_extensions"]
+azure = "dl_azure.init_extension:AzureInitExtension"
+
+[tool.uv.sources]
+dl-core = { path = "../dl-core", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dl_azure"]

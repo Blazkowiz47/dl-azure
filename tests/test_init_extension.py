@@ -1,0 +1,59 @@
+"""Tests for the Azure init extension plugin."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from dl_core import __version__ as dl_core_version
+from dl_core.init_extensions import ProjectNames, ScaffoldContext
+
+from dl_azure.init_extension import AzureInitExtension
+
+
+def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
+    """The Azure init extension should patch the scaffold for Azure usage."""
+    context = ScaffoldContext(
+        target_dir=tmp_path,
+        templates_dir=tmp_path,
+        project=ProjectNames(
+            project_name="demo",
+            project_slug="demo",
+            component_name="demo",
+            dataset_name="demo",
+            dataset_class_name="DemoDataset",
+            model_name="resnet_example",
+            model_class_name="ResNetExample",
+            trainer_name="demo",
+            trainer_class_name="DemoTrainer",
+        ),
+        files={
+            Path("pyproject.toml"): (
+                "[project]\n"
+                "dependencies = [\n"
+                f'    "dl-core>={dl_core_version}",\n'
+                "]\n"
+            ),
+            Path("README.md"): "# demo\n",
+            Path("src") / "bootstrap.py": (
+                '"""Project bootstrap hooks for local component loading."""\n'
+            ),
+            Path("configs") / "base_sweep.yaml": (
+                "fixed:\n  executor: preset:executors.local\n"
+            ),
+            Path("configs") / "presets.yaml": "# presets\n",
+        },
+        enabled_extensions={"azure"},
+    )
+
+    AzureInitExtension().apply(context)
+
+    assert f'"dl-core[azure]>={dl_core_version}"' in context.get_file("pyproject.toml")
+    assert "import dl_azure" in context.get_file(Path("src") / "bootstrap.py")
+    assert "preset:executors.azure" in context.get_file(
+        Path("configs") / "base_sweep.yaml"
+    )
+    assert "executors:" in context.get_file(Path("configs") / "presets.yaml")
+    assert '"subscription_id": "<subscription-id>"' in context.get_file(
+        "azure-config.json"
+    )
+
