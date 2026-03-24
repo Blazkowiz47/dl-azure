@@ -47,7 +47,10 @@ jobs:
           ]
           dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
           Path("requirements-ci.txt").write_text(
-              "\n".join([*dependencies, *dev_dependencies, "torch", "twine"]) + "\n",
+              "\n".join(
+                  [*dependencies, *dev_dependencies, "numpy", "scikit-learn", "torch", "twine"]
+              )
+              + "\n",
               encoding="utf-8",
           )
           PY
