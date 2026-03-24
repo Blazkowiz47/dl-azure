@@ -53,6 +53,7 @@ jobs:
                       *dev_dependencies,
                       "albumentations",
                       "numpy",
+                      "psutil",
                       "scikit-learn",
                       "torch",
                       "twine",
