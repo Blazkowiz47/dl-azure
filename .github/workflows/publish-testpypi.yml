@@ -30,14 +30,27 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
 
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install test dependencies
+        run: >
+          uv pip install
+          --python .venv/bin/python
+          --default-index https://pypi.org/simple
+          --index https://test.pypi.org/simple/
+          --no-sources
+          --editable .
+          --extra dev
+
       - name: Run tests
-        run: uv run --extra dev pytest
+        run: uv run --python .venv/bin/python python -m pytest
 
       - name: Build distribution artifacts
         run: uv build --no-sources
 
       - name: Check distribution metadata
-        run: uv run --with twine twine check dist/*
+        run: uv run --with twine python -m twine check dist/*
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v6
