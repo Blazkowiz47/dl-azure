@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from dl_core import __version__ as dl_core_version
 from dl_core.init_extensions import InitExtension, ScaffoldContext
 
 
@@ -60,8 +59,8 @@ class AzureInitExtension(InitExtension):
         """Apply Azure-specific scaffold mutations."""
         context.replace_in_file(
             "pyproject.toml",
-            f'"dl-core>={dl_core_version}"',
-            f'"dl-core[azure]>={dl_core_version}"',
+            '"dl-core"',
+            '"dl-core[azure]"',
         )
         context.append_bootstrap_import("import dl_azure  # noqa: F401")
         context.append_readme_note(
@@ -79,4 +78,3 @@ class AzureInitExtension(InitExtension):
             f"{context.get_file(presets_path).rstrip()}{_azure_executor_preset()}",
         )
         context.set_file("azure-config.json", _azure_config_template())
-

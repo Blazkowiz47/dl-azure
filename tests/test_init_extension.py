@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dl_core import __version__ as dl_core_version
 from dl_core.init_extensions import ProjectNames, ScaffoldContext
 
 from dl_azure.init_extension import AzureInitExtension
@@ -30,7 +29,7 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
             Path("pyproject.toml"): (
                 "[project]\n"
                 "dependencies = [\n"
-                f'    "dl-core>={dl_core_version}",\n'
+                '    "dl-core",\n'
                 "]\n"
             ),
             Path("README.md"): "# demo\n",
@@ -47,7 +46,7 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
 
     AzureInitExtension().apply(context)
 
-    assert f'"dl-core[azure]>={dl_core_version}"' in context.get_file("pyproject.toml")
+    assert '"dl-core[azure]"' in context.get_file("pyproject.toml")
     assert "import dl_azure" in context.get_file(Path("src") / "bootstrap.py")
     assert "preset:executors.azure" in context.get_file(
         Path("configs") / "base_sweep.yaml"
@@ -56,4 +55,3 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert '"subscription_id": "<subscription-id>"' in context.get_file(
         "azure-config.json"
     )
-
