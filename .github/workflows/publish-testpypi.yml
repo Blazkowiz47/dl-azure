@@ -42,15 +42,16 @@ jobs:
           --no-sources
           --editable .
           --extra dev
+          twine
 
       - name: Run tests
-        run: uv run --python .venv/bin/python python -m pytest
+        run: .venv/bin/python -m pytest
 
       - name: Build distribution artifacts
         run: uv build --no-sources
 
       - name: Check distribution metadata
-        run: uv run --with twine python -m twine check dist/*
+        run: .venv/bin/python -m twine check dist/*
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v6
