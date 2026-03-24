@@ -40,8 +40,7 @@ jobs:
           --default-index https://pypi.org/simple
           --index https://test.pypi.org/simple/
           --no-sources
-          --editable .
-          --group dev
+          --editable '.[dev]'
           twine
 
       - name: Run tests
