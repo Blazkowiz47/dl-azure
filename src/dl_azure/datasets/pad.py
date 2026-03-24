@@ -296,9 +296,45 @@ class AzureComputeMultiframePADWrapper(
 ):
     """Multiframe PAD dataset wrapper for Azure ML mounted datasets."""
 
+    def convert_groups_to_files(
+        self,
+        video_groups: dict[str, dict[str, list[str]]],
+        split: str,
+    ) -> list[dict[str, Any]]:
+        """Convert PAD video groups into multiframe samples."""
+
+        return AzureComputeMultiFrameWrapper.convert_groups_to_files(
+            self,
+            video_groups,
+            split,
+        )
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Load and stack multiple PAD frames into one sample tensor."""
+
+        return AzureComputeMultiFrameWrapper.transform(self, file_dict, split)
+
 
 @register_dataset("azure_streaming_multiframe_pad")
 class AzureStreamingMultiframePADWrapper(
     AzurePADMixin, AzureStreamingMultiFrameWrapper
 ):
     """Multiframe PAD dataset wrapper for Azure blob-backed datasets."""
+
+    def convert_groups_to_files(
+        self,
+        video_groups: dict[str, dict[str, list[str]]],
+        split: str,
+    ) -> list[dict[str, Any]]:
+        """Convert PAD video groups into multiframe samples."""
+
+        return AzureStreamingMultiFrameWrapper.convert_groups_to_files(
+            self,
+            video_groups,
+            split,
+        )
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+        """Load and stack multiple PAD frames into one sample tensor."""
+
+        return AzureStreamingMultiFrameWrapper.transform(self, file_dict, split)

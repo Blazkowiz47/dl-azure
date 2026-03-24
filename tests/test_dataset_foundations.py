@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
+import torch
+
+import dl_core
 from dl_azure.datasets.base import (
     AzureComputeMultiFrameWrapper,
     AzureComputeWrapper,
     sort_frame_paths,
 )
+from dl_azure.datasets.pad import AzureComputeMultiframePADWrapper
 
 
 class DummyComputeWrapper(AzureComputeWrapper):
@@ -151,3 +158,87 @@ def test_multiframe_wrapper_builds_consecutive_samples() -> None:
         "frames/frame_004.png",
         "frames/frame_005.png",
     )
+
+
+def _write_dummy_pad_metadata(
+    root: Path,
+    split: str,
+    metadata_suffix: str,
+    blob_paths: list[str],
+) -> None:
+    """Write one PAD metadata JSON file and its backing frame images."""
+
+    metadata_path = root / "data" / "paths" / split / metadata_suffix
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps({"blobs": blob_paths}, indent=2),
+        encoding="utf-8",
+    )
+
+    for index, blob_path in enumerate(blob_paths, start=1):
+        frame_path = root / blob_path.replace("Raw_Frames", "data/frames")
+        frame_path.parent.mkdir(parents=True, exist_ok=True)
+        image = np.zeros((48, 48, 3), dtype=np.uint8)
+        image[..., 0] = (index * 30) % 255
+        image[..., 1] = (index * 50) % 255
+        image[..., 2] = (index * 70) % 255
+        cv2.imwrite(str(frame_path), image)
+
+
+def test_compute_multiframe_pad_wrapper_stacks_frames(tmp_path: Path) -> None:
+    """The PAD multiframe wrapper should emit stacked frames and preserve paths."""
+
+    dl_core.load_builtin_components()
+    dataset_root = tmp_path / "pad_dataset"
+
+    _write_dummy_pad_metadata(
+        dataset_root,
+        "Train",
+        "Attack/2D/Print/DemoSet.json",
+        [
+            "Raw_Frames/Train/Attack/2D/Print/DemoSet/attack_vid/frame_0001.png",
+            "Raw_Frames/Train/Attack/2D/Print/DemoSet/attack_vid/frame_0002.png",
+            "Raw_Frames/Train/Attack/2D/Print/DemoSet/attack_vid/frame_0003.png",
+            "Raw_Frames/Train/Attack/2D/Print/DemoSet/attack_vid/frame_0004.png",
+        ],
+    )
+    _write_dummy_pad_metadata(
+        dataset_root,
+        "Train",
+        "Bonafide/DemoSet.json",
+        [
+            "Raw_Frames/Train/Bonafide/DemoSet/real_vid/frame_0001.png",
+            "Raw_Frames/Train/Bonafide/DemoSet/real_vid/frame_0002.png",
+            "Raw_Frames/Train/Bonafide/DemoSet/real_vid/frame_0003.png",
+            "Raw_Frames/Train/Bonafide/DemoSet/real_vid/frame_0004.png",
+        ],
+    )
+
+    wrapper = AzureComputeMultiframePADWrapper(
+        {
+            "root_dir": str(dataset_root),
+            "allow_local_fallback": False,
+            "classes": ["real", "attack"],
+            "num_classes": 2,
+            "batch_size": 1,
+            "num_workers": 0,
+            "height": 32,
+            "width": 32,
+            "metadata_dir": "data/paths",
+            "use_face_detection": False,
+            "multiframe": {
+                "num_frames": 2,
+                "mode": "consecutive",
+                "frame_stride": 0,
+            },
+        }
+    )
+
+    train_loader = wrapper.get_split("train")
+    assert train_loader is not None
+    batch = next(iter(train_loader))
+
+    assert isinstance(batch["image"], torch.Tensor)
+    assert tuple(batch["image"].shape) == (1, 2, 3, 32, 32)
+    assert "paths" in batch
+    assert len(batch["paths"][0]) == 2
