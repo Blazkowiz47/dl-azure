@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dl-azure"
-version = "0.0.5"
+version = "0.0.6"
 description = "Generic Azure integration layer for dl-core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,6 +21,12 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Blazkowiz47/dl-azure"
+Documentation = "https://github.com/Blazkowiz47/dl-azure/tree/main/readme"
+Repository = "https://github.com/Blazkowiz47/dl-azure"
+Issues = "https://github.com/Blazkowiz47/dl-azure/issues"
 
 [project.entry-points."dl_core.init_extensions"]
 azure = "dl_azure.init_extension:AzureInitExtension"

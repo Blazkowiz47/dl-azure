@@ -5,6 +5,24 @@ Public Azure integration layer for `dl-core`.
 `dl-azure` adds Azure ML execution, Azure storage helpers, and Azure-oriented
 dataset wrappers on top of `dl-core`.
 
+Install it directly or through the `dl-core[azure]` extra. The package is kept
+separate so Azure-specific dependencies and scaffold wiring do not leak into
+plain `dl-core` installations.
+
+## Install
+
+Install from PyPI:
+
+```bash
+pip install "dl-core[azure]"
+```
+
+Install the package directly:
+
+```bash
+pip install dl-azure
+```
+
 ## Scope
 
 - Azure ML executor
@@ -42,9 +60,23 @@ experiment package will import `dl_azure` automatically so its executor
 and generic dataset wrappers register at runtime, and the scaffold will also
 create `azure-config.json`.
 
+## What You Get
+
+- the `azure` executor
+- Azure storage helpers and AzCopy wrappers
+- generic Azure dataset foundations:
+  `AzureComputeWrapper`, `AzureStreamingWrapper`,
+  `AzureComputeFrameWrapper`, `AzureStreamingFrameWrapper`,
+  `AzureComputeMultiFrameWrapper`, and `AzureStreamingMultiFrameWrapper`
+- `dl-init-experiment --with-azure` scaffold integration
+
+## Companion Packages
+
+- [`dl-core`](https://github.com/Blazkowiz47/dl-core)
+- [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow)
+- [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
+
 ## Documentation
 
-- [Documentation Index](./readme/README.md)
-- [TLDR: Install and Submit](./readme/tldr/1_install_and_submit.md)
-- [Guide: Wiring Azure Into an Experiment Repo](./readme/guide/1_wiring_azure_into_an_experiment_repo.md)
-- [Technical: Executor Configuration](./readme/technical/2_executor_configuration.md)
+- [Documentation Index](https://github.com/Blazkowiz47/dl-azure/tree/main/readme)
+- [GitHub Repository](https://github.com/Blazkowiz47/dl-azure)

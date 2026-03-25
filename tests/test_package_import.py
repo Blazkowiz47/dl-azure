@@ -9,5 +9,5 @@ import dl_azure
 
 def test_package_import_exposes_version() -> None:
     """The package root should import successfully and expose a version."""
-    assert dl_azure.__version__ == "0.0.5"
+    assert dl_azure.__version__ == "0.0.6"
     assert "azureml.core" not in sys.modules

@@ -3,6 +3,12 @@
 This documentation covers the Azure adapter layer that sits on top of
 `dl-core`.
 
+## Related Packages
+
+- [`dl-core`](https://github.com/Blazkowiz47/dl-core)
+- [`dl-mlflow`](https://github.com/Blazkowiz47/dl-mlflow)
+- [`dl-wandb`](https://github.com/Blazkowiz47/dl-wandb)
+
 ## Structure
 
 ### 1. [`tldr/`](./tldr/1_install_and_submit.md)
@@ -16,7 +22,9 @@ Go here if you need the shortest path to a dry-run or submission.
 Go here if you want the package wired into a real experiment repository step by
 step.
 
-- [Wiring Azure Into an Experiment Repo](./guide/1_wiring_azure_into_an_experiment_repo.md)
+- [Wiring Azure Into an Experiment Repo](
+  ./guide/1_wiring_azure_into_an_experiment_repo.md
+  )
 
 ### 3. [`technical/`](./technical/1_package_scope.md)
 

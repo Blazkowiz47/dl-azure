@@ -947,7 +947,7 @@ wheels = [
 
 [[package]]
 name = "dl-azure"
-version = "0.0.5"
+version = "0.0.6"
 source = { editable = "." }
 dependencies = [
     { name = "azure-ai-ml" },
@@ -977,7 +977,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "dl-core"
-version = "0.0.5"
+version = "0.0.7"
 source = { editable = "../dl-core" }
 dependencies = [
     { name = "albumentations" },
@@ -997,6 +997,7 @@ dependencies = [
 requires-dist = [
     { name = "albumentations" },
     { name = "dl-azure", marker = "extra == 'azure'", editable = "." },
+    { name = "dl-mlflow", marker = "extra == 'mlflow'", editable = "../dl-mlflow" },
     { name = "dl-wandb", marker = "extra == 'wandb'", editable = "../dl-wandb" },
     { name = "numpy" },
     { name = "opencv-python" },
@@ -1008,7 +1009,7 @@ requires-dist = [
     { name = "torchvision" },
     { name = "tqdm" },
 ]
-provides-extras = ["azure", "wandb", "dev"]
+provides-extras = ["azure", "mlflow", "wandb", "dev"]
 
 [[package]]
 name = "docker"
