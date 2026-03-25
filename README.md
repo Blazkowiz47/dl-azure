@@ -80,3 +80,7 @@ create `azure-config.json`.
 
 - [Documentation Index](https://github.com/Blazkowiz47/dl-azure/tree/main/readme)
 - [GitHub Repository](https://github.com/Blazkowiz47/dl-azure)
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -8,6 +8,10 @@ version = "0.0.6"
 description = "Generic Azure integration layer for dl-core."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 dependencies = [
     "dl-core",
     "azure-ai-ml==1.31.0",
