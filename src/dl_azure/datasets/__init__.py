@@ -1,13 +1,5 @@
-"""Azure dataset integrations for dl-azure."""
+"""Generic Azure dataset base wrappers for dl-azure."""
 
-from dl_azure.datasets.azure_compute_pad import (
-    AzureComputeMultiframePADWrapper,
-    AzureComputePADWrapper,
-)
-from dl_azure.datasets.azure_streaming_pad import (
-    AzureStreamingMultiframePADWrapper,
-    AzureStreamingPADWrapper,
-)
 from dl_azure.datasets.base import (
     AzureComputeFrameWrapper,
     AzureComputeMultiFrameWrapper,
@@ -24,8 +16,4 @@ __all__ = [
     "AzureStreamingFrameWrapper",
     "AzureComputeMultiFrameWrapper",
     "AzureStreamingMultiFrameWrapper",
-    "AzureComputePADWrapper",
-    "AzureStreamingPADWrapper",
-    "AzureComputeMultiframePADWrapper",
-    "AzureStreamingMultiframePADWrapper",
 ]
