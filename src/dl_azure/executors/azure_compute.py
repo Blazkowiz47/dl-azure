@@ -18,7 +18,6 @@ from azure.storage.blob import (
     ResourceTypes,
     AccountSasPermissions,
 )
-from azureml.core import Workspace
 
 from dl_core.core import BaseExecutor, register_executor
 
@@ -313,6 +312,8 @@ class AzureComputeExecutor(BaseExecutor):
                 )
 
             # Setup Azure MLflow tracking URI
+            from azureml.core import Workspace
+
             ws = Workspace.from_config("./azure-config.json")
             self.tracking_uri = ws.get_mlflow_tracking_uri()
 

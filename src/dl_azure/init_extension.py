@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from dl_core.init_extensions import InitExtension, ScaffoldContext
@@ -32,6 +33,25 @@ executors:
     executor.datastore_name: null
     executor.process_count_per_node: 1
 """
+
+
+def _merged_azure_config(target_dir: Path) -> str:
+    """Render Azure config while preserving any existing user-provided values."""
+    default_config = json.loads(_azure_config_template())
+    existing_path = target_dir / "azure-config.json"
+    if not existing_path.exists():
+        return json.dumps(default_config, indent=2) + "\n"
+
+    try:
+        existing_config = json.loads(existing_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return json.dumps(default_config, indent=2) + "\n"
+
+    if not isinstance(existing_config, dict):
+        return json.dumps(default_config, indent=2) + "\n"
+
+    merged_config = {**default_config, **existing_config}
+    return json.dumps(merged_config, indent=2) + "\n"
 
 
 def _azure_dataset_init(
@@ -230,7 +250,10 @@ class AzureInitExtension(InitExtension):
             presets_path,
             f"{context.get_file(presets_path).rstrip()}{_azure_executor_preset()}",
         )
-        context.set_file("azure-config.json", _azure_config_template())
+        context.set_file(
+            "azure-config.json",
+            _merged_azure_config(context.target_dir),
+        )
         dataset_module = context.project.dataset_name
         class_stem = context.project.dataset_class_name.removesuffix("Dataset")
         context.set_file(

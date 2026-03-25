@@ -55,3 +55,51 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert '"subscription_id": "<subscription-id>"' in context.get_file(
         "azure-config.json"
     )
+    assert '"dl-azure"' in context.get_file("pyproject.toml")
+
+
+def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> None:
+    """Existing Azure config values should be preserved and missing keys added."""
+    (tmp_path / "azure-config.json").write_text(
+        '{\n  "workspace_name": "existing-workspace"\n}\n',
+        encoding="utf-8",
+    )
+    context = ScaffoldContext(
+        target_dir=tmp_path,
+        templates_dir=tmp_path,
+        project=ProjectNames(
+            project_name="demo",
+            project_slug="demo",
+            component_name="demo",
+            dataset_name="demo",
+            dataset_class_name="DemoDataset",
+            model_name="resnet_example",
+            model_class_name="ResNetExample",
+            trainer_name="demo",
+            trainer_class_name="DemoTrainer",
+        ),
+        files={
+            Path("pyproject.toml"): (
+                "[project]\n"
+                "dependencies = [\n"
+                '    "dl-core",\n'
+                "]\n"
+            ),
+            Path("README.md"): "# demo\n",
+            Path("src") / "bootstrap.py": (
+                '"""Project bootstrap hooks for local component loading."""\n'
+            ),
+            Path("configs") / "base_sweep.yaml": (
+                "fixed:\n  executor: preset:executors.local\n"
+            ),
+            Path("configs") / "presets.yaml": "# presets\n",
+        },
+        enabled_extensions={"azure"},
+    )
+
+    AzureInitExtension().apply(context)
+
+    rendered = context.get_file("azure-config.json")
+    assert '"workspace_name": "existing-workspace"' in rendered
+    assert '"subscription_id": "<subscription-id>"' in rendered
+    assert '"account_name": "<storage-account-name>"' in rendered

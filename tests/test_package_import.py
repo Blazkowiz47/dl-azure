@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import sys
+
 import dl_azure
 
 
 def test_package_import_exposes_version() -> None:
     """The package root should import successfully and expose a version."""
-    assert dl_azure.__version__ == "0.0.4"
+    assert dl_azure.__version__ == "0.0.5"
+    assert "azureml.core" not in sys.modules
