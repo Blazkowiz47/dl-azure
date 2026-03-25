@@ -1,36 +1,35 @@
-# dl-azure
+# deep-learning-azure
 
-Public Azure integration layer for `dl-core`.
+Public Azure integration layer for `deep-learning-core`.
 
-`dl-azure` adds Azure ML execution, Azure storage helpers, and Azure-oriented
-dataset wrappers on top of `dl-core`.
+`deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
+Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Install it directly or through the `dl-core[azure]` extra. The package is kept
-separate so Azure-specific dependencies and scaffold wiring do not leak into
-plain `dl-core` installations.
+Install it directly or through the `deep-learning-core[azure]` extra. The
+package is kept separate so Azure-specific dependencies and scaffold wiring do
+not leak into plain `deep-learning-core` installations.
 
 ## Install
 
-Current public validation releases are published on TestPyPI. Once the package
-is promoted to PyPI, the same install forms below will work against the main
-index.
+The package is now available on PyPI under the `deep-learning-azure` name.
+TestPyPI remains available for validation flows.
 
 PyPI install target:
 
 ```bash
-pip install "dl-core[azure]"
+pip install "deep-learning-core[azure]"
 ```
 
 Install the package directly:
 
 ```bash
-pip install dl-azure
+pip install deep-learning-azure
 ```
 
 Current TestPyPI + `uv` projects should add both direct dependencies:
 
 ```bash
-uv add "dl-core[azure]" dl-azure
+uv add "deep-learning-core[azure]" deep-learning-azure
 ```
 
 ## Scope
@@ -51,7 +50,7 @@ uv add "dl-core[azure]" dl-azure
 Install it into an experiment repository through the Azure extra:
 
 ```bash
-uv add "dl-core[azure]" dl-azure
+uv add "deep-learning-core[azure]" deep-learning-azure
 ```
 
 If the repository was scaffolded with `dl-init-experiment --with-azure`, the
