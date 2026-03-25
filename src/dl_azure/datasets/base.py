@@ -159,7 +159,12 @@ class AzureStreamingMixin(ABC):
             self.config.get("azure_config_path", "azure-config.json")
         ).expanduser()
         self.azure_config = self._load_azure_config()
-        self.container_name: str = self.config.get("container_name", "pad-datasets")
+        self.container_name = self.config.get("container_name")
+        if not self.container_name:
+            raise ValueError(
+                "Azure streaming datasets require 'container_name' in dataset "
+                "config."
+            )
         self.azure_service = AzureClientService(self.azure_config)
 
         cache_config = self.config.get("cache", {})

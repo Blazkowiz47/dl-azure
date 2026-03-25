@@ -29,7 +29,7 @@ step.
 ### 3. [`technical/`](./technical/1_package_scope.md)
 
 Go here if you need the current implementation details, config fields, or
-operational limitations.
+runtime notes.
 
 - [Package Scope](./technical/1_package_scope.md)
 - [Executor Configuration](./technical/2_executor_configuration.md)

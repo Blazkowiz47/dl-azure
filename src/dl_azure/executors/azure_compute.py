@@ -21,6 +21,9 @@ from azure.storage.blob import (
 
 from dl_core.core import BaseExecutor, register_executor
 
+_AMLIGNORE_BEGIN = "# BEGIN dl-azure managed block"
+_AMLIGNORE_END = "# END dl-azure managed block"
+
 
 @register_executor("azure")
 class AzureComputeExecutor(BaseExecutor):
@@ -77,6 +80,9 @@ class AzureComputeExecutor(BaseExecutor):
 
         # Get retry_limit (default: 0 - no retries)
         self.retry_limit = self.executor_config.get("retry_limit", 0)
+        self.azure_config_path = Path(
+            self.executor_config.get("azure_config_path", "azure-config.json")
+        ).expanduser()
 
         self.ml_client: MLClient
         self.parent_job_name = None  # Azure ML job name for parent
@@ -234,8 +240,7 @@ class AzureComputeExecutor(BaseExecutor):
 
         try:
             # Load Azure config (even in dry-run, for building URIs and showing what would happen)
-            azure_config_file = Path("./azure-config.json")
-            if not azure_config_file.exists():
+            if not self.azure_config_path.exists():
                 if self.dry_run:
                     # In dry-run without config file, use dummy values
                     self.logger.warning(
@@ -252,7 +257,7 @@ class AzureComputeExecutor(BaseExecutor):
                         "subscription_id, resource_group, and workspace_name"
                     )
             else:
-                with open(azure_config_file, "r") as f:
+                with open(self.azure_config_path, "r", encoding="utf-8") as f:
                     self.azure_config = json.load(f)
 
             if self.dry_run:
@@ -309,12 +314,12 @@ class AzureComputeExecutor(BaseExecutor):
             else:
                 self.logger.info(
                     "Execution mode: Sequential (wait for each job to complete)"
-                )
+            )
 
             # Setup Azure MLflow tracking URI
             from azureml.core import Workspace
 
-            ws = Workspace.from_config("./azure-config.json")
+            ws = Workspace.from_config(path=str(self.azure_config_path))
             self.tracking_uri = ws.get_mlflow_tracking_uri()
 
             # Get environment variables for jobs (includes SAS token generation if available)
@@ -334,7 +339,7 @@ class AzureComputeExecutor(BaseExecutor):
             sweep_file_path = self.sweep_config.get("sweep_file", "")
             if sweep_file_path:
                 self.update_amlignore(sweep_file_path)
-                self.logger.info("Updated .amlignore for sweep")
+                self.logger.info("Updated .amlignore managed block for Azure sweep")
 
             # If resuming and tracking_context provided, skip parent job creation
             if self.resume and self.tracking_context:
@@ -372,17 +377,42 @@ class AzureComputeExecutor(BaseExecutor):
 
     def update_amlignore(self, sweep_file: str) -> None:
         """
-        Update .amlignore to exclude other user directories and unnecessary files.
+        Update the managed Azure block in ``.amlignore``.
 
         Args:
-            sweep_file: Path to the sweep file (e.g., lab/users/sushrut/resnet18/sweeps/resnet18_lr_sweep.yaml)
+            sweep_file: Path to the sweep file. Used for logging only.
         """
+        del sweep_file
         amlignore_path = Path(".amlignore")
+        ignore_content = self._render_amlignore_block()
 
-        # Default ignore patterns
-        default_ignores = [
-            "# Azure ML ignore patterns",
+        # Write .amlignore with file locking to prevent race conditions
+        # when multiple threads/processes try to update simultaneously
+        # Open in 'a+' mode first to avoid truncating before lock acquisition
+        with open(amlignore_path, "a+", encoding="utf-8") as f:
+            # Acquire exclusive lock (blocks until available)
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.seek(0)
+                existing_content = f.read()
+                updated_content = self._upsert_amlignore_block(
+                    existing_content,
+                    ignore_content,
+                )
+                f.seek(0)
+                f.truncate()
+                f.write(updated_content)
+            finally:
+                # Release lock (also auto-released when file closes)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+        self.logger.info("Updated the managed dl-azure block in .amlignore")
+
+    def _render_amlignore_block(self) -> str:
+        """Render the managed `.amlignore` content for Azure submissions."""
+        patterns = [
             ".git/",
+            ".github/",
             ".vscode/",
             "__pycache__/",
             "*.pyc",
@@ -390,119 +420,56 @@ class AzureComputeExecutor(BaseExecutor):
             ".coverage",
             "htmlcov/",
             ".ruff_cache/",
-            ".venv",
-            "*.tox",
-            "*.toml","uv.lock","artifacts/",
-            ".cache/",
+            ".mypy_cache/",
+            ".venv/",
+            ".tox/",
+            "dist/",
+            "build/",
+            "artifacts/",
             "scores/",
             "mlruns/",
-            "*.pyc",
-            ".gitignore",
             "wandb/",
-            "tests/",
-            "docs/",
-            "mlruns/",
-            "*.db",
-            "*reports*",
-            "artifacts/",
-            "*.md",
+            ".cache/",
             "*.pt",
             "*.pth",
             "*.onnx",
             "*.safetensors",
-            "*.log",
-            "*.csv",
-            "*.json",
-            "!azure-config.json",  # Exception: allow Azure config file
             "*.bin",
             "*.ckpt",
-            ".dockerignore",
-            "*.sh",
-            "readme/",
-            "phases/",
-            ".claude/",
-            "pytest.ini",
-            "Dockerfile.*",
-            "Dockerfile",
-            "preprocessing/",
-            "scripts/",
-            ".gitattributes",
-            ".geminiignore",
-            "_old/",
-            "",
-            "# Exclude lab directories except current sweep",
+            "*.log",
+            "*.db",
         ]
-
-        # Determine which user directory and sweep to keep
-        current_user_dir = None
-        current_sweep_name = None
-        if sweep_file:
-            sweep_path = Path(sweep_file)
-            # Extract user directory: lab/users/sushrut/resnet18/sweeps/...
-            parts = sweep_path.parts
-            if len(parts) >= 4 and parts[0] == "lab" and parts[1] == "users":
-                current_user = parts[2]  # e.g., "sushrut"
-                current_experiment = parts[3]  # e.g., "resnet18"
-                current_user_dir = f"lab/users/{current_user}/{current_experiment}"
-
-                # Extract sweep name (e.g., "resnet_initial_sweep" from "resnet_initial_sweep.yaml")
-                if len(parts) >= 6 and parts[4] == "sweeps":
-                    current_sweep_name = (
-                        sweep_path.stem
-                    )  # filename without .yaml extension
-
-        # Get all user directories to exclude (except current)
-        lab_users_dir = Path("lab/users")
-        exclude_patterns = []
-
-        if lab_users_dir.exists():
-            for user_dir in lab_users_dir.iterdir():
-                if user_dir.is_dir():
-                    for exp_dir in user_dir.iterdir():
-                        if exp_dir.is_dir():
-                            user_exp_path = f"lab/users/{user_dir.name}/{exp_dir.name}"
-                            # Exclude if it's not the current user/experiment
-                            if user_exp_path != current_user_dir:
-                                exclude_patterns.append(f"{user_exp_path}/")
-
-        # Exclude other sweep's generated config directories within the current experiment
-        if current_user_dir and current_sweep_name:
-            sweeps_dir = Path(current_user_dir) / "sweeps"
-            if sweeps_dir.exists():
-                for sweep_subdir in sweeps_dir.iterdir():
-                    # Exclude directories (generated configs) that don't match current sweep
-                    if (
-                        sweep_subdir.is_dir()
-                        and sweep_subdir.name != current_sweep_name
-                    ):
-                        exclude_patterns.append(
-                            f"{current_user_dir}/sweeps/{sweep_subdir.name}/"
-                        )
-
-        # Add template directory (not needed on Azure)
-        exclude_patterns.append("lab/template/")
-
-        # Combine all patterns
-        ignore_content = "\n".join(default_ignores + exclude_patterns)
-
-        # Write .amlignore with file locking to prevent race conditions
-        # when multiple threads/processes try to update simultaneously
-        # Open in 'a+' mode first to avoid truncating before lock acquisition
-        with open(amlignore_path, "a+") as f:
-            # Acquire exclusive lock (blocks until available)
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                # Now that we have the lock, truncate and write
-                f.seek(0)
-                f.truncate()
-                f.write(ignore_content)
-            finally:
-                # Release lock (also auto-released when file closes)
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-
-        self.logger.info(
-            f"Updated .amlignore (keeping only {current_user_dir or 'current experiment'})"
+        return "\n".join(
+            [
+                _AMLIGNORE_BEGIN,
+                "# Managed by dl-azure. Keep this block if Azure submission is used.",
+                *patterns,
+                _AMLIGNORE_END,
+            ]
         )
+
+    def _upsert_amlignore_block(
+        self,
+        existing_content: str,
+        managed_block: str,
+    ) -> str:
+        """Insert or replace the managed Azure `.amlignore` block."""
+        if not existing_content.strip():
+            return f"{managed_block}\n"
+
+        begin_index = existing_content.find(_AMLIGNORE_BEGIN)
+        end_index = existing_content.find(_AMLIGNORE_END)
+        if begin_index != -1 and end_index != -1 and end_index >= begin_index:
+            end_index += len(_AMLIGNORE_END)
+            updated = (
+                existing_content[:begin_index].rstrip()
+                + "\n\n"
+                + managed_block
+                + existing_content[end_index:]
+            )
+            return updated.rstrip() + "\n"
+
+        return existing_content.rstrip() + "\n\n" + managed_block + "\n"
 
     def execute_runs_parallel(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int

@@ -84,7 +84,8 @@ Available generic dl-azure foundations:
 - AzureComputeMultiFrameWrapper / AzureStreamingMultiFrameWrapper
 
 Use the compute wrapper for mounted Azure ML inputs and the streaming wrapper
-for direct blob reads from Azure storage.
+for direct blob reads from Azure storage. Streaming wrappers require an
+explicit `dataset.container_name` in config.
 """
 
 from __future__ import annotations
@@ -189,7 +190,6 @@ class {streaming_class_name}(AzureStreamingWrapper):
     """Project-specific Azure blob streaming dataset wrapper."""
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
-        config.setdefault("container_name", "pad-datasets")
         config.setdefault("scan_prefix", "data/")
         config.setdefault("default_label", "class1")
         super().__init__(config, **kwargs)

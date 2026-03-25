@@ -6,7 +6,8 @@
 2. make sure `dl_azure` is imported so registrations happen
 3. put Azure executor config into the sweep
 4. fill in `azure-config.json`
-5. run a dry-run first
+5. set `dataset.container_name` for streaming datasets
+6. run a dry-run first
 
 ## Install
 

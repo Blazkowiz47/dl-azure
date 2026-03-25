@@ -34,12 +34,15 @@ executor:
   - if `true`, submit and return without waiting for each child job
 - `retry_limit`
   - number of retry rounds for failed runs
+- `azure_config_path`
+  - optional path to the Azure workspace config file
+  - defaults to `azure-config.json`
 
 ## Additional Inputs
 
 The executor also reads:
 
-- `azure-config.json` from the current working directory
+- `azure-config.json` by default, or the configured `executor.azure_config_path`
 - `AZURE_ACCESS_KEY` when generating SAS tokens for storage access
 
 ## Submission Model

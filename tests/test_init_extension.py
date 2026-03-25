@@ -56,6 +56,9 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
         "azure-config.json"
     )
     assert '"dl-azure"' in context.get_file("pyproject.toml")
+    dataset_file = context.get_file(Path("src") / "datasets" / "demo.py")
+    assert "pad-datasets" not in dataset_file
+    assert "dataset.container_name" in dataset_file
 
 
 def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> None:

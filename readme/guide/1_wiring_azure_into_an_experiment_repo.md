@@ -48,7 +48,8 @@ fixed:
 ## Step 4: Fill In `azure-config.json`
 
 The scaffold creates `azure-config.json` in the repository root. Replace the
-placeholder values before submission.
+placeholder values before submission. If you need to keep that file elsewhere,
+set `executor.azure_config_path` to the alternate location.
 
 ## Step 5: Choose the Dataset Path
 
@@ -66,8 +67,9 @@ The compute wrappers read from that resolved root directory directly.
 uv run dl-sweep --sweep experiments/lr_sweep.yaml --dry-run
 ```
 
-This is especially important because the current executor still contains some
-legacy `.amlignore` logic tied to the old repository layout.
+This is especially important because the Azure executor updates a managed block
+in `.amlignore` for submission hygiene. The dry-run gives you a safe place to
+verify the generated job config first.
 
 ## Step 7: Submit
 
