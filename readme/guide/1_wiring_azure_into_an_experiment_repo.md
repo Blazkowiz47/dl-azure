@@ -52,12 +52,13 @@ placeholder values before submission.
 
 ## Step 5: Choose the Dataset Path
 
-If you use `azure_compute_pad`, the dataset expects the Azure ML input to be
-mounted under the input name `dataset_path`. The wrapper reads from:
+Use one of the generic Azure dataset base wrappers as the parent for your
+project-specific dataset wrapper. For mounted Azure ML inputs, pass either:
 
-```text
-${AZURE_ML_INPUT_dataset_path}/data
-```
+- `dataset.root_dir` for an explicit local or mounted path
+- `dataset.input_name` to resolve `AZURE_ML_INPUT_<input_name>`
+
+The compute wrappers read from that resolved root directory directly.
 
 ## Step 6: Dry-Run Before Submission
 

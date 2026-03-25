@@ -24,7 +24,6 @@ This package is usable, but it still carries some legacy assumptions that are
 important to know:
 
 - it expects `azure-config.json` in the current working directory
-- the PAD Azure dataset wrapper expects the mounted input name `dataset_path`
 - `.amlignore` handling still assumes the older `lab/users/...` style layout
 - Azure submission is currently sweep-oriented; `dl-run` remains local-only
 
@@ -40,8 +39,8 @@ uv add "dl-core[azure]"
 
 If the repository was scaffolded with `dl-init-experiment --with-azure`, the
 experiment package will import `dl_azure` automatically so its executor
-and dataset wrappers register at runtime, and the scaffold will also create
-`azure-config.json`.
+and generic dataset wrappers register at runtime, and the scaffold will also
+create `azure-config.json`.
 
 ## Documentation
 

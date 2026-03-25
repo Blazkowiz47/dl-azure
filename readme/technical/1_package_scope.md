@@ -7,7 +7,8 @@
 - `AzureComputeExecutor`
 - Azure storage helpers
 - AzCopy helpers
-- Azure dataset wrappers such as `azure_compute_pad`
+- Generic Azure dataset base wrappers for compute, streaming, frame, and
+  multiframe use cases
 
 ## What It Assumes
 

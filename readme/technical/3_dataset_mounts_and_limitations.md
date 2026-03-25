@@ -3,25 +3,16 @@
 The current Azure dataset and executor implementation still carries a few
 important assumptions from the legacy repository.
 
-## `azure_compute_pad`
+## Compute Dataset Roots
 
-The `azure_compute_pad` dataset wrapper expects an Azure ML input named
-`dataset_path`. At runtime it reads the mount from:
+The generic compute dataset wrappers support three root resolution paths:
 
-```text
-AZURE_ML_INPUT_dataset_path
-```
+- explicit `dataset.root_dir`
+- Azure ML input mounts via `AZURE_ML_INPUT_<input_name>`
+- optional local fallback when the wrapper config allows it
 
-and then uses:
-
-```text
-${AZURE_ML_INPUT_dataset_path}/data
-```
-
-as the base directory.
-
-If that environment variable is missing, it falls back to local paths such as
-`./data`.
+That means project-specific datasets should pass either a concrete `root_dir`
+or an `input_name` instead of hardcoding a single mounted directory name.
 
 ## Executor Limitations
 
