@@ -67,6 +67,7 @@ jobs:
           )
           PY
           uv pip install --python .venv/bin/python -r requirements-ci.txt
+          uv cache clean
           uv pip install --python .venv/bin/python --no-deps deep-learning-core
           uv pip install --python .venv/bin/python --no-deps --editable .
 
