@@ -1,11 +1,11 @@
 name: Publish TestPyPI
 # TestPyPI setup required before first use:
-# 1. Create the `dl-azure` project on TestPyPI.
+# 1. Create the `deep-learning-azure` project on TestPyPI.
 # 2. Add a Trusted Publisher for:
 #    - owner: Blazkowiz47
 #    - repository: dl-azure
 #    - workflow: publish-testpypi.yml
-#    - environment: Any
+#    - environment: dl-azure
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -43,7 +43,7 @@ jobs:
           dependencies = [
               dependency
               for dependency in pyproject["project"]["dependencies"]
-              if not dependency.startswith("dl-core")
+              if not dependency.startswith("deep-learning-core")
           ]
           dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
           Path("requirements-ci.txt").write_text(
@@ -72,7 +72,7 @@ jobs:
             --index https://test.pypi.org/simple/ \
             --index-strategy unsafe-best-match \
             --no-deps \
-            dl-core
+            deep-learning-core
           uv pip install --python .venv/bin/python --no-deps --editable .
 
       - name: Run tests
@@ -97,6 +97,10 @@ jobs:
       - build
     permissions:
       id-token: write
+
+    environment:
+      name: dl-azure
+      url: https://test.pypi.org/p/deep-learning-azure
 
     steps:
       - name: Download distribution artifacts

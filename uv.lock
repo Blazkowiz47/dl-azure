@@ -946,8 +946,8 @@ wheels = [
 ]
 
 [[package]]
-name = "dl-azure"
-version = "1.0.0"
+name = "deep-learning-azure"
+version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "azure-ai-ml" },
@@ -955,7 +955,7 @@ dependencies = [
     { name = "azure-storage-blob" },
     { name = "azureml-core" },
     { name = "azureml-mlflow" },
-    { name = "dl-core" },
+    { name = "deep-learning-core" },
 ]
 
 [package.optional-dependencies]
@@ -970,14 +970,14 @@ requires-dist = [
     { name = "azure-storage-blob", specifier = "==12.19.0" },
     { name = "azureml-core", specifier = "==1.60.0.post1" },
     { name = "azureml-mlflow", specifier = "==1.60.0.post1" },
-    { name = "dl-core", editable = "../dl-core" },
+    { name = "deep-learning-core", editable = "../dl-core" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
-name = "dl-core"
-version = "1.0.0"
+name = "deep-learning-core"
+version = "0.0.1"
 source = { editable = "../dl-core" }
 dependencies = [
     { name = "albumentations" },
@@ -996,9 +996,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "albumentations" },
-    { name = "dl-azure", marker = "extra == 'azure'", editable = "." },
-    { name = "dl-mlflow", marker = "extra == 'mlflow'", editable = "../dl-mlflow" },
-    { name = "dl-wandb", marker = "extra == 'wandb'", editable = "../dl-wandb" },
+    { name = "deep-learning-azure", marker = "extra == 'azure'", editable = "." },
+    { name = "deep-learning-mlflow", marker = "extra == 'mlflow'", editable = "../dl-mlflow" },
+    { name = "deep-learning-wandb", marker = "extra == 'wandb'", editable = "../dl-wandb" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "psutil" },

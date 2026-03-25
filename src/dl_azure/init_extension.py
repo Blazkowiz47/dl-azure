@@ -231,10 +231,10 @@ class AzureInitExtension(InitExtension):
         """Apply Azure-specific scaffold mutations."""
         context.replace_in_file(
             "pyproject.toml",
-            '"dl-core"',
-            '"dl-core[azure]"',
+            '"deep-learning-core"',
+            '"deep-learning-core[azure]"',
         )
-        context.add_dependency("dl-azure")
+        context.add_dependency("deep-learning-azure")
         context.append_bootstrap_import("import dl_azure  # noqa: F401")
         context.append_readme_note(
             "Azure support is enabled. Fill in `azure-config.json` and the "

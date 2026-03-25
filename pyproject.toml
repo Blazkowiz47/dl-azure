@@ -3,8 +3,8 @@ requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dl-azure"
-version = "1.0.0"
+name = "deep-learning-azure"
+version = "0.0.1"
 description = "Generic Azure integration layer for dl-core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "dl-core",
+    "deep-learning-core",
     "azure-ai-ml==1.31.0",
     "azure-identity==1.25.1",
     "azure-storage-blob==12.19.0",
@@ -36,7 +36,7 @@ Issues = "https://github.com/Blazkowiz47/dl-azure/issues"
 azure = "dl_azure.init_extension:AzureInitExtension"
 
 [tool.uv.sources]
-dl-core = { path = "../dl-core", editable = true }
+"deep-learning-core" = { path = "../dl-core", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dl_azure"]
