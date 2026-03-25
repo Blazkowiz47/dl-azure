@@ -35,6 +35,24 @@ executors:
 """
 
 
+def _azure_mlflow_callback_block() -> str:
+    """Render the scaffold callback block for Azure MLflow logging."""
+    return """
+  azure_mlflow:
+    experiment_name: my_experiment
+    run_name: my_run
+    log_config: true
+"""
+
+
+def _azure_tracking_fields() -> str:
+    """Render Azure MLflow additions to the scaffold tracking block."""
+    return """tracking:
+  backend: azure_mlflow
+  group: my_experiment
+"""
+
+
 def _merged_azure_config(target_dir: Path) -> str:
     """Render Azure config while preserving any existing user-provided values."""
     default_config = json.loads(_azure_config_template())
@@ -239,6 +257,17 @@ class AzureInitExtension(InitExtension):
         context.append_readme_note(
             "Azure support is enabled. Fill in `azure-config.json` and the "
             "`executors.azure` preset placeholders before submitting runs."
+        )
+        context.replace_in_file(
+            Path("configs") / "base.yaml",
+            "  metric_logger:\n    log_frequency: 1\n",
+            "  metric_logger:\n    log_frequency: 1\n"
+            f"{_azure_mlflow_callback_block()}",
+        )
+        context.replace_in_file(
+            Path("configs") / "base_sweep.yaml",
+            "tracking:\n  group: my_experiment\n",
+            _azure_tracking_fields(),
         )
         context.replace_in_file(
             Path("configs") / "base_sweep.yaml",

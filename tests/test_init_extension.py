@@ -36,7 +36,13 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
             Path("src") / "bootstrap.py": (
                 '"""Project bootstrap hooks for local component loading."""\n'
             ),
+            Path("configs") / "base.yaml": (
+                "callbacks:\n"
+                "  metric_logger:\n"
+                "    log_frequency: 1\n"
+            ),
             Path("configs") / "base_sweep.yaml": (
+                "tracking:\n  group: my_experiment\n"
                 "fixed:\n  executor: preset:executors.local\n"
             ),
             Path("configs") / "presets.yaml": "# presets\n",
@@ -51,6 +57,10 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert "preset:executors.azure" in context.get_file(
         Path("configs") / "base_sweep.yaml"
     )
+    assert "backend: azure_mlflow" in context.get_file(
+        Path("configs") / "base_sweep.yaml"
+    )
+    assert "azure_mlflow:" in context.get_file(Path("configs") / "base.yaml")
     assert "executors:" in context.get_file(Path("configs") / "presets.yaml")
     assert '"subscription_id": "<subscription-id>"' in context.get_file(
         "azure-config.json"
@@ -92,7 +102,13 @@ def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> No
             Path("src") / "bootstrap.py": (
                 '"""Project bootstrap hooks for local component loading."""\n'
             ),
+            Path("configs") / "base.yaml": (
+                "callbacks:\n"
+                "  metric_logger:\n"
+                "    log_frequency: 1\n"
+            ),
             Path("configs") / "base_sweep.yaml": (
+                "tracking:\n  group: my_experiment\n"
                 "fixed:\n  executor: preset:executors.local\n"
             ),
             Path("configs") / "presets.yaml": "# presets\n",
