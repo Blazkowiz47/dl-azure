@@ -75,7 +75,9 @@ jobs:
         run: .venv/bin/python -m pytest
 
       - name: Build distribution artifacts
-        run: uv build --no-sources
+        run: |
+          rm -rf dist
+          uv build --no-sources
 
       - name: Check distribution metadata
         run: .venv/bin/python -m twine check dist/*
