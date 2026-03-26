@@ -47,10 +47,24 @@ def _azure_mlflow_callback_block() -> str:
 
 def _azure_tracking_fields() -> str:
     """Render Azure MLflow additions to the scaffold tracking block."""
-    return """tracking:
-  backend: azure_mlflow
-  group: my_experiment
+    return """  backend: azure_mlflow
 """
+
+
+def _inject_azure_tracking_fields(content: str) -> str:
+    """Inject Azure MLflow tracking fields into the sweep scaffold."""
+
+    if "tracking:\n" not in content:
+        return content
+
+    if "tracking:\n  backend: azure_mlflow\n" in content:
+        return content
+
+    return content.replace(
+        "tracking:\n",
+        f"tracking:\n{_azure_tracking_fields()}",
+        1,
+    )
 
 
 def _merged_azure_config(target_dir: Path) -> str:
@@ -266,8 +280,10 @@ class AzureInitExtension(InitExtension):
         )
         context.replace_in_file(
             Path("configs") / "base_sweep.yaml",
-            "tracking:\n  group: my_experiment\n",
-            _azure_tracking_fields(),
+            context.get_file(Path("configs") / "base_sweep.yaml"),
+            _inject_azure_tracking_fields(
+                context.get_file(Path("configs") / "base_sweep.yaml")
+            ),
         )
         context.replace_in_file(
             Path("configs") / "base_sweep.yaml",
