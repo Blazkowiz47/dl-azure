@@ -74,6 +74,11 @@ def _flatten_dict(
     return dict(items)
 
 
+def _is_phase_metric(metric_name: str) -> bool:
+    """Return whether a metric belongs to a train/validation/test phase."""
+    return metric_name.startswith(("train/", "validation/", "test/"))
+
+
 @register_callback("azure_mlflow")
 class AzureMlflowCallback(Callback):
     """Log training metadata and metrics to Azure MLflow."""
@@ -242,19 +247,56 @@ class AzureMlflowCallback(Callback):
         self._log_default_artifacts()
 
     def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
-        """Log scalar epoch metrics to Azure MLflow."""
+        """Log non-phase epoch metrics to Azure MLflow."""
         super().on_epoch_end(epoch, logs)
+        self._log_metrics(epoch, logs, phase_only=False)
+
+    def on_train_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
+        """Log train metrics to Azure MLflow."""
+        super().on_train_end(epoch, logs)
+        self._log_metrics(epoch, logs, phase_only=True)
+
+    def on_validation_end(
+        self,
+        epoch: int,
+        logs: dict[str, Any] | None = None,
+    ) -> None:
+        """Log validation metrics to Azure MLflow."""
+        super().on_validation_end(epoch, logs)
+        self._log_metrics(epoch, logs, phase_only=True)
+
+    def on_test_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
+        """Log test metrics to Azure MLflow."""
+        super().on_test_end(epoch, logs)
+        self._log_metrics(epoch, logs, phase_only=True)
+
+    def _log_metrics(
+        self,
+        epoch: int,
+        logs: dict[str, Any] | None,
+        *,
+        phase_only: bool,
+    ) -> None:
+        """Log scalar metrics to Azure MLflow with consistent step numbering."""
         if not self.is_main_process():
             return
         if self.run is None:
             return
 
         scalars = _extract_scalars(logs)
+        if phase_only:
+            scalars = {
+                key: value for key, value in scalars.items() if _is_phase_metric(key)
+            }
+        else:
+            scalars = {
+                key: value for key, value in scalars.items() if not _is_phase_metric(key)
+            }
         if not scalars:
             return
 
         try:
-            mlflow.log_metrics(scalars, step=epoch + 1)
+            mlflow.log_metrics(scalars, step=epoch)
         except Exception as exc:
             self.logger.warning(f"Failed to log Azure MLflow metrics: {exc}")
 

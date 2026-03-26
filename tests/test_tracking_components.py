@@ -201,6 +201,50 @@ def test_azure_mlflow_callback_prefers_existing_azure_run_id(
     assert ("start", "parent-run-789") not in events
 
 
+def test_azure_mlflow_callback_logs_phase_metrics_with_epoch_steps(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The Azure callback should log phase metrics separately with correct steps."""
+    metric_events: list[tuple[dict[str, float], int]] = []
+
+    monkeypatch.setattr(
+        "dl_azure.callbacks.mlflow.mlflow",
+        SimpleNamespace(
+            set_tracking_uri=lambda *_args, **_kwargs: None,
+            set_experiment=lambda *_args, **_kwargs: None,
+            start_run=lambda **_kwargs: SimpleNamespace(
+                info=SimpleNamespace(run_id="child-run-999")
+            ),
+            log_params=lambda *_args, **_kwargs: None,
+            log_artifact=lambda *_args, **_kwargs: None,
+            log_metrics=lambda metrics, step: metric_events.append((metrics, step)),
+            end_run=lambda: None,
+        ),
+    )
+
+    callback = AzureMlflowCallback()
+    callback.set_trainer(_DummyTrainer())
+    callback.on_training_start()
+    callback.on_test_end(0, {"test/accuracy": 0.61})
+    callback.on_train_end(1, {"train/loss": 0.5})
+    callback.on_validation_end(1, {"validation/accuracy": 0.75})
+    callback.on_epoch_end(
+        1,
+        {
+            "train/loss": 0.5,
+            "validation/accuracy": 0.75,
+            "general/state/global_step": 32.0,
+        },
+    )
+
+    assert metric_events == [
+        ({"test/accuracy": 0.61}, 0),
+        ({"train/loss": 0.5}, 1),
+        ({"validation/accuracy": 0.75}, 1),
+        ({"general/state/global_step": 32.0}, 1),
+    ]
+
+
 def test_azure_mlflow_metrics_source_prefers_remote_metrics(
     monkeypatch: MonkeyPatch,
 ) -> None:
