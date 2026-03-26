@@ -225,9 +225,9 @@ def test_azure_mlflow_callback_logs_phase_metrics_with_epoch_steps(
     callback = AzureMlflowCallback()
     callback.set_trainer(_DummyTrainer())
     callback.on_training_start()
-    callback.on_test_end(0, {"test/accuracy": 0.61})
-    callback.on_train_end(1, {"train/loss": 0.5})
-    callback.on_validation_end(1, {"validation/accuracy": 0.75})
+    callback.on_test_end(0, {"accuracy": 0.61})
+    callback.on_train_end(1, {"loss": 0.5})
+    callback.on_validation_end(1, {"accuracy": 0.75})
     callback.on_epoch_end(
         1,
         {

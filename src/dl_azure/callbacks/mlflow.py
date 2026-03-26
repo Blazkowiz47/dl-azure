@@ -74,9 +74,14 @@ def _flatten_dict(
     return dict(items)
 
 
-def _is_phase_metric(metric_name: str) -> bool:
-    """Return whether a metric belongs to a train/validation/test phase."""
-    return metric_name.startswith(("train/", "validation/", "test/"))
+def _qualify_phase_metrics(
+    scalars: dict[str, float],
+    phase: str | None,
+) -> dict[str, float]:
+    """Return phase-qualified scalars for phase hooks."""
+    if phase is None:
+        return scalars
+    return {f"{phase}/{key}": value for key, value in scalars.items()}
 
 
 @register_callback("azure_mlflow")
@@ -249,12 +254,12 @@ class AzureMlflowCallback(Callback):
     def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Log non-phase epoch metrics to Azure MLflow."""
         super().on_epoch_end(epoch, logs)
-        self._log_metrics(epoch, logs, phase_only=False)
+        self._log_metrics(epoch, logs, phase=None)
 
     def on_train_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Log train metrics to Azure MLflow."""
         super().on_train_end(epoch, logs)
-        self._log_metrics(epoch, logs, phase_only=True)
+        self._log_metrics(epoch, logs, phase="train")
 
     def on_validation_end(
         self,
@@ -263,19 +268,19 @@ class AzureMlflowCallback(Callback):
     ) -> None:
         """Log validation metrics to Azure MLflow."""
         super().on_validation_end(epoch, logs)
-        self._log_metrics(epoch, logs, phase_only=True)
+        self._log_metrics(epoch, logs, phase="validation")
 
     def on_test_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Log test metrics to Azure MLflow."""
         super().on_test_end(epoch, logs)
-        self._log_metrics(epoch, logs, phase_only=True)
+        self._log_metrics(epoch, logs, phase="test")
 
     def _log_metrics(
         self,
         epoch: int,
         logs: dict[str, Any] | None,
         *,
-        phase_only: bool,
+        phase: str | None = None,
     ) -> None:
         """Log scalar metrics to Azure MLflow with consistent step numbering."""
         if not self.is_main_process():
@@ -284,13 +289,12 @@ class AzureMlflowCallback(Callback):
             return
 
         scalars = _extract_scalars(logs)
-        if phase_only:
+        scalars = _qualify_phase_metrics(scalars, phase)
+        if phase is None:
             scalars = {
-                key: value for key, value in scalars.items() if _is_phase_metric(key)
-            }
-        else:
-            scalars = {
-                key: value for key, value in scalars.items() if not _is_phase_metric(key)
+                key: value
+                for key, value in scalars.items()
+                if not key.startswith(("train/", "validation/", "test/"))
             }
         if not scalars:
             return
