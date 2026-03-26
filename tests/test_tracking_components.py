@@ -133,7 +133,12 @@ def test_azure_mlflow_tracker_setup_sweep_creates_parent_run_for_local_executor(
         ),
     )
 
-    tracker = AzureMlflowTracker({"tracking_uri": "azureml://tracking"})
+    tracker = AzureMlflowTracker(
+        {
+            "tracking_uri": "azureml://tracking",
+            "experiment_name": "shared-azure-experiment",
+        }
+    )
     tracker_state = tracker.setup_sweep(
         experiment_name="demo-experiment",
         sweep_id="sweep-001",
@@ -147,7 +152,7 @@ def test_azure_mlflow_tracker_setup_sweep_creates_parent_run_for_local_executor(
         "tracking_uri": "azureml://tracking",
     }
     assert ("uri", "azureml://tracking") in events
-    assert ("experiment", "demo-experiment") in events
+    assert ("experiment", "shared-azure-experiment") in events
     assert ("start", "live_local") in events
     assert ("end", "parent") in events
 
