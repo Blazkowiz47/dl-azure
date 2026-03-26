@@ -175,6 +175,27 @@ class AzureMlflowCallback(Callback):
         except Exception as exc:
             self.logger.warning(f"Failed to write Azure MLflow run id file: {exc}")
 
+    def _write_tracking_session(self, tracking_uri: str) -> None:
+        """Persist Azure MLflow session metadata inside the artifact directory."""
+        artifact_manager = getattr(self.trainer, "artifact_manager", None)
+        if artifact_manager is None:
+            return
+        if not hasattr(artifact_manager, "save_tracking_session"):
+            return
+        if self.run is None:
+            return
+
+        parent_run_id = self._resolve_parent_run_id()
+        session_data = {
+            "backend": "azure_mlflow",
+            "run_id": self.run.info.run_id,
+            "run_name": self._resolve_run_name(),
+            "tracking_uri": tracking_uri,
+            "experiment_name": self._resolve_experiment_name(),
+            "parent_run_id": parent_run_id,
+        }
+        artifact_manager.save_tracking_session(session_data)
+
     def on_training_start(self, logs: dict[str, Any] | None = None) -> None:
         """Initialize the Azure MLflow run at the beginning of training."""
         super().on_training_start(logs)
@@ -201,6 +222,7 @@ class AzureMlflowCallback(Callback):
             self.run = mlflow.start_run(run_name=self._resolve_run_name())
 
         self._write_run_id_file()
+        self._write_tracking_session(tracking_uri)
         if self.log_config:
             self._log_params()
         self._log_default_artifacts()
