@@ -287,6 +287,7 @@ class AzureComputeExecutor(BaseExecutor):
                         f"[DRY RUN]   Would create parent job: {sweep_name}"
                     )
                     self.parent_job_name = "dry_run_parent_job"
+                    self.tracking_context = self.parent_job_name
                 # Set dummy values
                 self.tracking_uri = "dry_run_tracking_uri"
                 self.env_vars = {"PYTHONUNBUFFERED": "1"}
@@ -365,6 +366,7 @@ class AzureComputeExecutor(BaseExecutor):
             # Submit parent job
             submitted_parent = self.ml_client.jobs.create_or_update(parent_job)
             self.parent_job_name = submitted_parent.name
+            self.tracking_context = self.parent_job_name
 
             self.logger.info(f"Created parent job: {self.parent_job_name}")
             self.logger.info(f"Display name: {sweep_name}")

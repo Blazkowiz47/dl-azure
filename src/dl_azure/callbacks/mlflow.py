@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -108,8 +109,14 @@ class AzureMlflowCallback(Callback):
     def _resolve_experiment_name(self) -> str:
         """Return the MLflow experiment name for the current training run."""
         trainer_config = getattr(self.trainer, "config", {})
+        tracking = trainer_config.get("tracking", {})
         experiment = trainer_config.get("experiment", {})
-        return self.experiment_name or experiment.get("name") or "default"
+        return (
+            tracking.get("experiment_name")
+            or experiment.get("name")
+            or self.experiment_name
+            or "default"
+        )
 
     def _resolve_tracking_uri(self) -> str | None:
         """Return the MLflow tracking URI for the current training run."""
@@ -127,12 +134,16 @@ class AzureMlflowCallback(Callback):
             or tracking.get("context")
         )
 
+    def _resolve_existing_run_id(self) -> str | None:
+        """Return the Azure-provided MLflow run id when running inside a job."""
+        return os.environ.get("MLFLOW_RUN_ID") or os.environ.get("AZUREML_RUN_ID")
+
     def _resolve_run_name(self) -> str | None:
         """Return the MLflow run name for the current training run."""
         trainer_config = getattr(self.trainer, "config", {})
         runtime = trainer_config.get("runtime", {})
         tracking = trainer_config.get("tracking", {})
-        return self.run_name or tracking.get("run_name") or runtime.get("name")
+        return tracking.get("run_name") or runtime.get("name") or self.run_name
 
     def _log_params(self) -> None:
         """Log flattened trainer config into MLflow parameters."""
@@ -211,8 +222,11 @@ class AzureMlflowCallback(Callback):
         mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(self._resolve_experiment_name())
 
+        existing_run_id = self._resolve_existing_run_id()
         parent_run_id = self._resolve_parent_run_id()
-        if parent_run_id:
+        if existing_run_id:
+            self.run = mlflow.start_run(run_id=existing_run_id)
+        elif parent_run_id:
             self.parent_run = mlflow.start_run(run_id=parent_run_id)
             self.run = mlflow.start_run(
                 run_name=self._resolve_run_name(),

@@ -90,11 +90,28 @@ def test_azure_mlflow_callback_uses_tracking_config(
     assert ("start", "demo-run") in events
 
 
-def test_azure_mlflow_tracker_setup_sweep_creates_parent_run(
+def test_azure_mlflow_tracker_setup_sweep_reuses_parent_job_context() -> None:
+    """The Azure tracker should use the Azure parent job as tracking context."""
+    tracker = AzureMlflowTracker({"tracking_uri": "azureml://tracking"})
+    tracker_state = tracker.setup_sweep(
+        experiment_name="demo-experiment",
+        sweep_id="sweep-001",
+        sweep_config={"tracking": {}},
+        total_runs=2,
+        tracking_context="azure-parent-job",
+    )
+
+    assert tracker_state == {
+        "tracking_context": "azure-parent-job",
+        "tracking_uri": "azureml://tracking",
+    }
+
+
+def test_azure_mlflow_callback_prefers_existing_azure_run_id(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    """The Azure MLflow tracker should create one parent run for the sweep."""
-    events: list[tuple[str, str]] = []
+    """The Azure callback should attach to the active Azure ML run when present."""
+    events: list[tuple[str, str | None]] = []
 
     def fake_set_tracking_uri(uri: str) -> None:
         events.append(("uri", uri))
@@ -102,37 +119,36 @@ def test_azure_mlflow_tracker_setup_sweep_creates_parent_run(
     def fake_set_experiment(name: str) -> None:
         events.append(("experiment", name))
 
-    def fake_start_run(run_name: str | None = None):
-        events.append(("start", run_name or ""))
-        return SimpleNamespace(info=SimpleNamespace(run_id="parent-run-azure"))
+    def fake_start_run(
+        run_id: str | None = None,
+        run_name: str | None = None,
+        nested: bool = False,
+    ):
+        del nested
+        events.append(("start", run_id or run_name))
+        return SimpleNamespace(info=SimpleNamespace(run_id=run_id or "child-run-999"))
 
     monkeypatch.setattr(
-        "dl_azure.trackers.azure_mlflow.mlflow",
+        "dl_azure.callbacks.mlflow.mlflow",
         SimpleNamespace(
             set_tracking_uri=fake_set_tracking_uri,
             set_experiment=fake_set_experiment,
             start_run=fake_start_run,
-            end_run=lambda: events.append(("end", "parent")),
+            log_params=lambda *_args, **_kwargs: None,
+            log_artifact=lambda *_args, **_kwargs: None,
+            end_run=lambda: None,
         ),
     )
+    monkeypatch.setenv("MLFLOW_RUN_ID", "azure-job-123")
 
-    tracker = AzureMlflowTracker({"tracking_uri": "azureml://tracking"})
-    tracker_state = tracker.setup_sweep(
-        experiment_name="demo-experiment",
-        sweep_id="sweep-001",
-        sweep_config={"tracking": {}},
-        total_runs=2,
-    )
-    tracker.teardown_sweep()
+    callback = AzureMlflowCallback()
+    callback.set_trainer(_DummyTrainer())
+    callback.on_training_start()
 
-    assert tracker_state == {
-        "tracking_context": "parent-run-azure",
-        "tracking_uri": "azureml://tracking",
-    }
     assert ("uri", "azureml://tracking") in events
     assert ("experiment", "demo-experiment") in events
-    assert ("start", "demo-experiment-sweep-001") in events
-    assert ("end", "parent") in events
+    assert ("start", "azure-job-123") in events
+    assert ("start", "parent-run-789") not in events
 
 
 def test_azure_mlflow_metrics_source_prefers_remote_metrics(

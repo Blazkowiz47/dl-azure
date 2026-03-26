@@ -4,19 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import mlflow
-
 from dl_core.core import BaseTracker, register_tracker
 
 
 @register_tracker("azure_mlflow")
 class AzureMlflowTracker(BaseTracker):
     """Tracker metadata adapter for Azure MLflow-backed runs."""
-
-    def __init__(self, tracking_config: dict[str, Any] | None = None, **kwargs: Any):
-        """Initialize tracker state for Azure MLflow-backed sweeps."""
-        super().__init__(tracking_config, **kwargs)
-        self.parent_run: Any | None = None
 
     def get_backend_name(self) -> str:
         """Return the tracker backend name."""
@@ -33,7 +26,7 @@ class AzureMlflowTracker(BaseTracker):
         tracking_uri: str | None = None,
         resume: bool = False,
     ) -> dict[str, Any]:
-        """Create or reuse the Azure MLflow parent run for the sweep."""
+        """Reuse the Azure parent job as the MLflow tracking context."""
         del total_runs
         del sweep_config
 
@@ -42,38 +35,13 @@ class AzureMlflowTracker(BaseTracker):
             or self.tracking_config.get("tracking_uri")
             or self.tracking_config.get("uri")
         )
-        if not resolved_tracking_uri:
-            return {"tracking_context": tracking_context, "tracking_uri": tracking_uri}
-
-        if resume and tracking_context:
-            return {
-                "tracking_context": tracking_context,
-                "tracking_uri": resolved_tracking_uri,
-            }
-
-        if tracking_context:
-            return {
-                "tracking_context": tracking_context,
-                "tracking_uri": resolved_tracking_uri,
-            }
-
-        group_name = self.tracking_config.get("group") or f"{experiment_name}-{sweep_id}"
-        mlflow.set_tracking_uri(resolved_tracking_uri)
-        mlflow.set_experiment(experiment_name)
-        self.parent_run = mlflow.start_run(run_name=str(group_name))
         return {
-            "tracking_context": self.parent_run.info.run_id,
+            "tracking_context": tracking_context,
             "tracking_uri": resolved_tracking_uri,
         }
 
     def teardown_sweep(self) -> None:
-        """Close the Azure MLflow parent sweep run when one was opened."""
-        if self.parent_run is None:
-            return
-        try:
-            mlflow.end_run()
-        finally:
-            self.parent_run = None
+        """Azure ML owns the parent sweep run lifecycle."""
 
     def inject_tracking_config(
         self,
@@ -120,7 +88,9 @@ class AzureMlflowTracker(BaseTracker):
         if tracking_uri:
             reference.setdefault("tracking_uri", tracking_uri)
 
-        execution_run_id = result.get("tracking_run_id") if isinstance(result, dict) else None
+        execution_run_id = (
+            result.get("tracking_run_id") if isinstance(result, dict) else None
+        )
         if isinstance(execution_run_id, str) and execution_run_id:
             reference.setdefault("azure_job_name", execution_run_id)
             reference.setdefault("run_id", execution_run_id)
