@@ -63,7 +63,9 @@
 
   <versioning_policy>
     <rule>When bumping the package version, update <code>pyproject.toml</code>, <code>src/dl_core/__init__.py</code>, and the scaffold dependency floor in <code>src/dl_core/init_experiment.py</code>.</rule>
-    <rule>Unless the user explicitly requests otherwise, keep pre-release version bumps on the same alpha line by incrementing the alpha suffix, for example <code>0.0.1a0 -&gt; 0.0.1a1</code>; only move to the next stable version such as <code>0.0.2</code> after the release line is considered stable and tested.</rule>
+    <rule>Unless the user explicitly requests otherwise, alpha releases must stay on the exact same base version and only increment the alpha suffix, for example <code>0.0.1 -&gt; 0.0.1a1</code> or <code>0.0.1a0 -&gt; 0.0.1a1</code>.</rule>
+    <rule>Do not change the stable portion of the version for alpha work. If the current release line is <code>0.0.1</code>, do not jump to <code>0.0.2a0</code> unless the user explicitly asks to start the <code>0.0.2</code> line.</rule>
+    <rule>Before any version bump or publish action, explicitly restate the current version and intended target version in a progress update and verify that the base version is unchanged unless the user requested that change.</rule>
     <rule>If the version bump affects package metadata or the local project entry in <code>uv.lock</code>, refresh the lockfile rather than editing it by hand.</rule>
     <rule>Before any publish action, make sure version references are internally consistent and validation has passed.</rule>
     <rule>Use concise release commits such as <code>release: bump dl-core to 0.1.8</code>.</rule>
