@@ -1035,6 +1035,20 @@ class AzureComputeExecutor(BaseExecutor):
             "tracking_run_name": run_name,
         }
 
+    def build_command(
+        self, config_path: str, run_config: Optional[Dict[str, Any]] = None
+    ) -> list[str]:
+        """
+        Build an Azure-safe worker command.
+
+        Azure jobs must not inherit the caller's local virtualenv interpreter
+        path. Use the remote environment's ``python`` executable instead.
+        """
+        cmd = super().build_command(config_path, run_config)
+        if cmd:
+            cmd[0] = "python"
+        return cmd
+
     def teardown(self) -> None:
         """Print summary after all jobs are submitted/completed."""
         total_jobs = (

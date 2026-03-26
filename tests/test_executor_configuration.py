@@ -33,3 +33,24 @@ def test_update_amlignore_preserves_user_content(tmp_path: Path) -> None:
     assert "# END dl-azure managed block" in rendered
     assert "lab/users/" not in rendered
     assert "lab/template/" not in rendered
+
+
+def test_build_command_uses_remote_python_for_azure_jobs() -> None:
+    """Azure executor commands should not capture the local virtualenv path."""
+
+    executor = AzureComputeExecutor(
+        sweep_config={"executor": {}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+
+    command = executor.build_command(
+        "experiments/lr_sweep/run_001.yaml",
+        {
+            "accelerator": {"type": "cpu"},
+            "runtime": {"log_level": "INFO"},
+        },
+    )
+
+    assert command[:3] == ["python", "-m", "dl_core.worker"]
