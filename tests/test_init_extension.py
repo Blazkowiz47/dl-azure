@@ -66,6 +66,13 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert "group: demo" in context.get_file(Path("configs") / "base_sweep.yaml")
     assert "azure_mlflow:" in context.get_file(Path("configs") / "base.yaml")
     assert "executors:" in context.get_file(Path("configs") / "presets.yaml")
+    presets_text = context.get_file(Path("configs") / "presets.yaml")
+    assert 'executor.compute_target: "<compute-target>"' in presets_text
+    assert 'executor.environment_name: "<environment-name>"' in presets_text
+    assert 'executor.datastore_name: "<datastore-name-or-null>"' in presets_text
+    assert "executor.retry_limit: 0" in presets_text
+    assert "executor.dont_wait_for_completion: false" in presets_text
+    assert 'executor.azure_config_path: "azure-config.json"' in presets_text
     assert '"subscription_id": "<subscription-id>"' in context.get_file(
         "azure-config.json"
     )

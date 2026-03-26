@@ -21,7 +21,7 @@ def _azure_config_template() -> str:
 
 
 def _azure_executor_preset() -> str:
-    """Render a minimal Azure executor preset block."""
+    """Render a discoverable Azure executor preset block."""
     return """
 
 executors:
@@ -30,8 +30,11 @@ executors:
     executor.compute_target: "<compute-target>"
     executor.environment_name: "<environment-name>"
     executor.environment_version: "latest"
-    executor.datastore_name: null
+    executor.datastore_name: "<datastore-name-or-null>"
     executor.process_count_per_node: 1
+    executor.retry_limit: 0
+    executor.dont_wait_for_completion: false
+    executor.azure_config_path: "azure-config.json"
 """
 
 
