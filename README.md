@@ -61,6 +61,26 @@ create `azure-config.json`.
 The Azure executor is sweep-oriented. Use `dl-sweep --dry-run` before the first
 real submission in a new repository.
 
+Concrete experiment flow:
+
+```bash
+uv init
+uv add deep-learning-azure
+uv run dl-init-experiment --root-dir . --with-azure
+uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
+uv run dl-sweep --dry-run --sweep experiments/lr_sweep.yaml
+```
+
+Concrete dataset scaffold examples:
+
+```bash
+uv run dl-core add dataset AzureImages --base azure_compute
+uv run dl-core add dataset AzureFrames --base azure_compute_frame
+uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
+uv run dl-core add dataset AzureStream --base azure_streaming
+uv run dl-core add dataset AzureStreamSeq --base azure_streaming_multiframe
+```
+
 ## What You Get
 
 - the `azure` executor
