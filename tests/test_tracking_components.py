@@ -107,6 +107,51 @@ def test_azure_mlflow_tracker_setup_sweep_reuses_parent_job_context() -> None:
     }
 
 
+def test_azure_mlflow_tracker_setup_sweep_creates_parent_run_for_local_executor(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The Azure tracker should open a parent run when no context exists."""
+    events: list[tuple[str, str]] = []
+
+    def fake_set_tracking_uri(uri: str) -> None:
+        events.append(("uri", uri))
+
+    def fake_set_experiment(name: str) -> None:
+        events.append(("experiment", name))
+
+    def fake_start_run(run_name: str | None = None):
+        events.append(("start", run_name or ""))
+        return SimpleNamespace(info=SimpleNamespace(run_id="azure-parent-local"))
+
+    monkeypatch.setattr(
+        "dl_azure.trackers.azure_mlflow.mlflow",
+        SimpleNamespace(
+            set_tracking_uri=fake_set_tracking_uri,
+            set_experiment=fake_set_experiment,
+            start_run=fake_start_run,
+            end_run=lambda: events.append(("end", "parent")),
+        ),
+    )
+
+    tracker = AzureMlflowTracker({"tracking_uri": "azureml://tracking"})
+    tracker_state = tracker.setup_sweep(
+        experiment_name="demo-experiment",
+        sweep_id="sweep-001",
+        sweep_config={"tracking": {}, "sweep_file": "experiments/live_local.yaml"},
+        total_runs=3,
+    )
+    tracker.teardown_sweep()
+
+    assert tracker_state == {
+        "tracking_context": "azure-parent-local",
+        "tracking_uri": "azureml://tracking",
+    }
+    assert ("uri", "azureml://tracking") in events
+    assert ("experiment", "demo-experiment") in events
+    assert ("start", "live_local") in events
+    assert ("end", "parent") in events
+
+
 def test_azure_mlflow_callback_prefers_existing_azure_run_id(
     monkeypatch: MonkeyPatch,
 ) -> None:
