@@ -62,10 +62,13 @@ def test_azure_mlflow_callback_uses_tracking_config(
     def fake_start_run(
         run_id: str | None = None,
         run_name: str | None = None,
+        parent_run_id: str | None = None,
         nested: bool = False,
     ):
         del nested
         events.append(("start", run_id or run_name))
+        if parent_run_id is not None:
+            events.append(("parent", parent_run_id))
         return SimpleNamespace(info=SimpleNamespace(run_id="child-run-999"))
 
     monkeypatch.setattr(
@@ -86,8 +89,8 @@ def test_azure_mlflow_callback_uses_tracking_config(
 
     assert ("uri", "azureml://tracking") in events
     assert ("experiment", "demo-experiment") in events
-    assert ("start", "parent-run-789") in events
     assert ("start", "demo-run") in events
+    assert ("parent", "parent-run-789") in events
 
 
 def test_azure_mlflow_tracker_setup_sweep_reuses_parent_job_context() -> None:
@@ -172,9 +175,10 @@ def test_azure_mlflow_callback_prefers_existing_azure_run_id(
     def fake_start_run(
         run_id: str | None = None,
         run_name: str | None = None,
+        parent_run_id: str | None = None,
         nested: bool = False,
     ):
-        del nested
+        del nested, parent_run_id
         events.append(("start", run_id or run_name))
         return SimpleNamespace(info=SimpleNamespace(run_id=run_id or "child-run-999"))
 
