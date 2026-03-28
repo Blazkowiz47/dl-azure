@@ -41,7 +41,7 @@ class _DummyTrainer:
 
 def test_azure_tracker_and_metrics_source_are_registered() -> None:
     """Importing dl-azure should register tracker, metrics source, and callback."""
-    assert dl_azure.__version__ == "0.0.2a3"
+    assert dl_azure.__version__ == "0.0.2a4"
     assert TRACKER_REGISTRY.is_registered("azure_mlflow")
     assert METRICS_SOURCE_REGISTRY.is_registered("azure_mlflow")
     assert CALLBACK_REGISTRY.is_registered("azure_mlflow")
