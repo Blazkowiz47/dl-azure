@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deep-learning-azure"
-version = "0.0.2a8"
+version = "0.0.2a9"
 description = "Generic Azure integration layer for dl-core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "deep-learning-core==0.0.2a7",
+    "deep-learning-core==0.0.2a9",
     "azure-ai-ml==1.31.0",
     "azure-identity==1.25.1",
     "azure-storage-blob==12.19.0",
