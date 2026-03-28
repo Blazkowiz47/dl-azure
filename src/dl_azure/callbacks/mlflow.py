@@ -113,7 +113,6 @@ class AzureMlflowCallback(Callback):
         self.parent_run_id = parent_run_id
         self.run_id_file = run_id_file
         self.log_config = log_config
-        self.parent_run: Any | None = None
         self.run: Any | None = None
 
     def _resolve_experiment_name(self) -> str:
@@ -237,10 +236,9 @@ class AzureMlflowCallback(Callback):
         if existing_run_id:
             self.run = mlflow.start_run(run_id=existing_run_id)
         elif parent_run_id:
-            self.parent_run = mlflow.start_run(run_id=parent_run_id)
             self.run = mlflow.start_run(
                 run_name=self._resolve_run_name(),
-                nested=True,
+                parent_run_id=parent_run_id,
             )
         else:
             self.run = mlflow.start_run(run_name=self._resolve_run_name())
@@ -317,8 +315,3 @@ class AzureMlflowCallback(Callback):
             mlflow.end_run()
         finally:
             self.run = None
-            if self.parent_run is not None:
-                try:
-                    mlflow.end_run()
-                finally:
-                    self.parent_run = None
