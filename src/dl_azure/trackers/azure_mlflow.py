@@ -80,16 +80,16 @@ class AzureMlflowTracker(BaseTracker):
             self.tracking_config.get("experiment_name") or experiment_name
         )
         sweep_file = sweep_config.get("sweep_file")
-        sweep_name = Path(str(sweep_file)).stem if sweep_file else ""
-        group_name = (
-            self.tracking_config.get("group")
-            or sweep_name
+        derived_sweep_name = Path(str(sweep_file)).stem if sweep_file else ""
+        sweep_name = (
+            self.tracking_config.get("sweep_name")
+            or derived_sweep_name
             or f"{resolved_experiment_name}-{sweep_id}"
         )
 
         mlflow.set_tracking_uri(resolved_tracking_uri)
         mlflow.set_experiment(str(resolved_experiment_name))
-        self.parent_run = mlflow.start_run(run_name=str(group_name))
+        self.parent_run = mlflow.start_run(run_name=str(sweep_name))
         return {
             "tracking_context": self.parent_run.info.run_id,
             "tracking_uri": resolved_tracking_uri,
