@@ -42,8 +42,7 @@ def _azure_mlflow_callback_block() -> str:
     """Render the scaffold callback block for Azure MLflow logging."""
     return """
   azure_mlflow:
-    experiment_name: my_experiment
-    run_name: my_run
+    run_name: null
     log_config: true
 """
 

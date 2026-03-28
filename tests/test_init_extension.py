@@ -43,8 +43,10 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
             ),
             Path("configs") / "base_sweep.yaml": (
                 "tracking:\n"
+                "  # experiment_name: demo\n"
+                "  # Optional tracker destination override. Defaults to the repository root name.\n"
                 "  # sweep_name: demo\n"
-                "  # Optional override. Defaults to the sweep filename.\n"
+                "  # Optional sweep grouping override. Defaults to the sweep filename.\n"
                 '  run_name_template: "lr_{optimizers.lr}"\n'
                 "fixed:\n"
                 "  executor: preset:executors.local\n"
@@ -64,10 +66,14 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert "backend: azure_mlflow" in context.get_file(
         Path("configs") / "base_sweep.yaml"
     )
+    assert "# experiment_name: demo" in context.get_file(
+        Path("configs") / "base_sweep.yaml"
+    )
     assert "# sweep_name: demo" in context.get_file(
         Path("configs") / "base_sweep.yaml"
     )
     assert "azure_mlflow:" in context.get_file(Path("configs") / "base.yaml")
+    assert "experiment_name:" not in context.get_file(Path("configs") / "base.yaml")
     assert "executors:" in context.get_file(Path("configs") / "presets.yaml")
     presets_text = context.get_file(Path("configs") / "presets.yaml")
     assert 'executor.compute_target: "<compute-target>"' in presets_text
@@ -123,8 +129,10 @@ def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> No
             ),
             Path("configs") / "base_sweep.yaml": (
                 "tracking:\n"
+                "  # experiment_name: demo\n"
+                "  # Optional tracker destination override. Defaults to the repository root name.\n"
                 "  # sweep_name: demo\n"
-                "  # Optional override. Defaults to the sweep filename.\n"
+                "  # Optional sweep grouping override. Defaults to the sweep filename.\n"
                 '  run_name_template: "lr_{optimizers.lr}"\n'
                 "fixed:\n"
                 "  executor: preset:executors.local\n"

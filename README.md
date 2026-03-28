@@ -71,6 +71,10 @@ uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
 uv run dl-sweep --dry-run --sweep experiments/lr_sweep.yaml
 ```
 
+Tracker naming defaults to the repository root name. If you want Azure job
+submission and Azure MLflow to use a different destination name, set
+`tracking.experiment_name` in your sweep config.
+
 Concrete dataset scaffold examples:
 
 ```bash

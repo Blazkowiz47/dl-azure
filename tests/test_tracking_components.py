@@ -41,7 +41,7 @@ class _DummyTrainer:
 
 def test_azure_tracker_and_metrics_source_are_registered() -> None:
     """Importing dl-azure should register tracker, metrics source, and callback."""
-    assert dl_azure.__version__ == "0.0.2a7"
+    assert dl_azure.__version__ == "0.0.2a8"
     assert TRACKER_REGISTRY.is_registered("azure_mlflow")
     assert METRICS_SOURCE_REGISTRY.is_registered("azure_mlflow")
     assert CALLBACK_REGISTRY.is_registered("azure_mlflow")
@@ -204,9 +204,53 @@ def test_azure_mlflow_callback_prefers_existing_azure_run_id(
     callback.on_training_start()
 
     assert ("uri", "azureml://tracking") in events
-    assert ("experiment", "demo-experiment") in events
     assert ("start", "azure-job-123") not in events
     assert ("start", "parent-run-789") not in events
+
+
+def test_azure_mlflow_callback_attaches_to_job_run_without_resetting_experiment(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The Azure callback should attach to the job run without a run-id reopen."""
+    events: list[tuple[str, str | None]] = []
+
+    def fake_set_tracking_uri(uri: str) -> None:
+        events.append(("uri", uri))
+
+    def fake_set_experiment(name: str) -> None:
+        events.append(("experiment", name))
+
+    def fake_start_run(
+        run_id: str | None = None,
+        run_name: str | None = None,
+        parent_run_id: str | None = None,
+        nested: bool = False,
+    ):
+        del run_name, parent_run_id, nested
+        events.append(("start", run_id))
+        return SimpleNamespace(info=SimpleNamespace(run_id="azure-job-456"))
+
+    monkeypatch.setattr(
+        "dl_azure.callbacks.mlflow.mlflow",
+        SimpleNamespace(
+            set_tracking_uri=fake_set_tracking_uri,
+            set_experiment=fake_set_experiment,
+            active_run=lambda: None,
+            start_run=fake_start_run,
+            log_params=lambda *_args, **_kwargs: None,
+            log_artifact=lambda *_args, **_kwargs: None,
+            end_run=lambda: None,
+        ),
+    )
+    monkeypatch.setenv("MLFLOW_RUN_ID", "azure-job-456")
+
+    callback = AzureMlflowCallback()
+    callback.set_trainer(_DummyTrainer())
+    callback.on_training_start()
+
+    assert ("uri", "azureml://tracking") in events
+    assert ("experiment", "demo-experiment") not in events
+    assert ("start", None) in events
 
 
 def test_azure_mlflow_callback_logs_phase_metrics_with_epoch_steps(
