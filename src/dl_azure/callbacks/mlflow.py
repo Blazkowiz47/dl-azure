@@ -114,6 +114,7 @@ class AzureMlflowCallback(Callback):
         self.run_id_file = run_id_file
         self.log_config = log_config
         self.run: Any | None = None
+        self._owns_run = False
 
     def _resolve_experiment_name(self) -> str:
         """Return the MLflow experiment name for the current training run."""
@@ -233,15 +234,29 @@ class AzureMlflowCallback(Callback):
 
         existing_run_id = self._resolve_existing_run_id()
         parent_run_id = self._resolve_parent_run_id()
-        if existing_run_id:
+        active_run = mlflow.active_run() if existing_run_id else None
+        if active_run is not None:
+            active_run_id = getattr(getattr(active_run, "info", None), "run_id", None)
+            if active_run_id and active_run_id != existing_run_id:
+                self.logger.warning(
+                    "Active Azure MLflow run id "
+                    f"{active_run_id} does not match environment run id "
+                    f"{existing_run_id}; reusing the active run."
+                )
+            self.run = active_run
+            self._owns_run = False
+        elif existing_run_id:
             self.run = mlflow.start_run(run_id=existing_run_id)
+            self._owns_run = True
         elif parent_run_id:
             self.run = mlflow.start_run(
                 run_name=self._resolve_run_name(),
                 parent_run_id=parent_run_id,
             )
+            self._owns_run = True
         else:
             self.run = mlflow.start_run(run_name=self._resolve_run_name())
+            self._owns_run = True
 
         self._write_run_id_file()
         self._write_tracking_session(tracking_uri)
@@ -312,6 +327,8 @@ class AzureMlflowCallback(Callback):
 
         self._log_default_artifacts()
         try:
-            mlflow.end_run()
+            if self._owns_run:
+                mlflow.end_run()
         finally:
             self.run = None
+            self._owns_run = False
