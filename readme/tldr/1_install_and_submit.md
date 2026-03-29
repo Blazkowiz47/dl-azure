@@ -48,13 +48,13 @@ fixed:
 ## Dry-Run First
 
 ```bash
-uv run dl-sweep --sweep experiments/lr_sweep.yaml --dry-run
+uv run dl-sweep experiments/lr_sweep.yaml --dry-run
 ```
 
 Optional CLI overrides:
 
 ```bash
-uv run dl-sweep --sweep experiments/lr_sweep.yaml \
+uv run dl-sweep experiments/lr_sweep.yaml \
   --compute gpu-cluster \
   --environment dl_lab \
   --dry-run

@@ -68,7 +68,7 @@ uv init
 uv add deep-learning-azure
 uv run dl-init-experiment --root-dir . --with-azure
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
-uv run dl-sweep --dry-run --sweep experiments/lr_sweep.yaml
+uv run dl-sweep experiments/lr_sweep.yaml --dry-run
 ```
 
 Tracker naming defaults to the repository root name. If you want Azure job

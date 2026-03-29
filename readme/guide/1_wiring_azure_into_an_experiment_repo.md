@@ -64,7 +64,7 @@ The compute wrappers read from that resolved root directory directly.
 ## Step 6: Dry-Run Before Submission
 
 ```bash
-uv run dl-sweep --sweep experiments/lr_sweep.yaml --dry-run
+uv run dl-sweep experiments/lr_sweep.yaml --dry-run
 ```
 
 This is especially important because the Azure executor updates a managed block
@@ -76,7 +76,7 @@ verify the generated job config first.
 Once the dry-run output looks correct:
 
 ```bash
-uv run dl-sweep --sweep experiments/lr_sweep.yaml
+uv run dl-sweep experiments/lr_sweep.yaml
 ```
 
 Today the Azure path is sweep-oriented. The local-only `dl-run` path is still
