@@ -172,13 +172,48 @@ class AzureMlflowCallback(Callback):
         except Exception as exc:
             self.logger.warning(f"Failed to upload artifact {path.name}: {exc}")
 
+    def _is_azure_job_run(self) -> bool:
+        """Return whether the current process is already inside an Azure job run."""
+        return self._resolve_existing_run_id() is not None
+
+    def _should_log_full_run_dir(self, artifact_manager: Any) -> bool:
+        """Return whether the full run tree should be uploaded recursively."""
+        if self._is_azure_job_run():
+            return False
+
+        output_dir = getattr(artifact_manager, "output_dir", None)
+        if output_dir is None:
+            return False
+
+        normalized_output_dir = Path(output_dir).as_posix().strip("/").rstrip("/")
+        return normalized_output_dir == "outputs" or normalized_output_dir.startswith(
+            "outputs/"
+        )
+
+    def _log_run_dir(self, run_dir: Path) -> None:
+        """Upload the full run directory when outputs-backed logging is used."""
+        if not run_dir.exists():
+            return
+        try:
+            mlflow.log_artifacts(str(run_dir))
+        except Exception as exc:
+            self.logger.warning(
+                f"Failed to upload Azure MLflow run directory {run_dir}: {exc}"
+            )
+
     def _log_default_artifacts(self) -> None:
-        """Upload the standard dl-core artifact files to Azure MLflow."""
+        """Upload run artifacts when Azure does not persist them automatically."""
         artifact_manager = getattr(self.trainer, "artifact_manager", None)
         if artifact_manager is None:
             return
 
         run_dir = Path(artifact_manager.run_dir)
+        if self._is_azure_job_run():
+            return
+        if self._should_log_full_run_dir(artifact_manager):
+            self._log_run_dir(run_dir)
+            return
+
         self._log_artifact_if_exists(run_dir / "config.yaml", None)
         self._log_artifact_if_exists(run_dir / "run_info.json", None)
         self._log_artifact_if_exists(run_dir / "metrics" / "summary.json", "metrics")
@@ -267,7 +302,6 @@ class AzureMlflowCallback(Callback):
         self._write_tracking_session(tracking_uri)
         if self.log_config:
             self._log_params()
-        self._log_default_artifacts()
 
     def on_epoch_end(self, epoch: int, logs: dict[str, Any] | None = None) -> None:
         """Log non-phase epoch metrics to Azure MLflow."""

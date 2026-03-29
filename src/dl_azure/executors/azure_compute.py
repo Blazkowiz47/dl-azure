@@ -427,6 +427,7 @@ class AzureComputeExecutor(BaseExecutor):
             ".tox/",
             "dist/",
             "build/",
+            "outputs/",
             "artifacts/",
             "scores/",
             "mlruns/",
@@ -472,6 +473,31 @@ class AzureComputeExecutor(BaseExecutor):
             return updated.rstrip() + "\n"
 
         return existing_content.rstrip() + "\n\n" + managed_block + "\n"
+
+    @staticmethod
+    def _should_use_managed_output_dir(output_dir: Any) -> bool:
+        """Return whether Azure should promote the run output directory."""
+        if not isinstance(output_dir, str):
+            return True
+
+        normalized = output_dir.strip().rstrip("/")
+        if not normalized:
+            return True
+
+        return normalized in {"artifacts", "./artifacts"}
+
+    def _apply_azure_output_dir(self, run_config: Dict[str, Any]) -> None:
+        """Route default artifact output into Azure's managed outputs tree."""
+        runtime_config = run_config.get("runtime")
+        if not isinstance(runtime_config, dict):
+            runtime_config = {}
+            run_config["runtime"] = runtime_config
+
+        configured_output_dir = runtime_config.get("output_dir")
+        if not self._should_use_managed_output_dir(configured_output_dir):
+            return
+
+        runtime_config["output_dir"] = "outputs/artifacts"
 
     def execute_runs_parallel(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int
@@ -848,6 +874,8 @@ class AzureComputeExecutor(BaseExecutor):
         # Read config from disk
         with open(config_path, "r") as f:
             run_config = yaml.safe_load(f)
+
+        self._apply_azure_output_dir(run_config)
 
         # Generate descriptive run name from grid parameters
         run_name = self.generate_run_name(run_config, run_index)

@@ -75,6 +75,11 @@ Tracker naming defaults to the repository root name. If you want Azure job
 submission and Azure MLflow to use a different destination name, set
 `tracking.experiment_name` in your sweep config.
 
+Azure submissions automatically rewrite the default local `runtime.output_dir`
+from `artifacts` to `outputs/artifacts` inside the remote job. That keeps
+checkpoints, plots, metrics, and other run files under Azure ML's managed
+output directory without changing the local default artifact layout.
+
 Concrete dataset scaffold examples:
 
 ```bash
@@ -96,6 +101,8 @@ uv run dl-core add dataset AzureStreamSeq --base azure_streaming_multiframe
 - `dl-init-experiment --with-azure` scaffold integration
 - a managed `.amlignore` block that preserves user content while excluding
   common local-only outputs from Azure submissions
+- Azure job output routing to `outputs/artifacts` for automatic artifact
+  persistence in Azure ML
 
 ## Companion Packages
 

@@ -36,7 +36,7 @@ class _DummyTrainer:
                 "run_name": "demo-run",
             },
         }
-        self.artifact_manager = SimpleNamespace(run_dir=".")
+        self.artifact_manager = SimpleNamespace(run_dir=".", output_dir="artifacts")
 
 
 def test_azure_tracker_and_metrics_source_are_registered() -> None:
@@ -80,6 +80,7 @@ def test_azure_mlflow_callback_uses_tracking_config(
             start_run=fake_start_run,
             log_params=lambda *_args, **_kwargs: None,
             log_artifact=lambda *_args, **_kwargs: None,
+            log_artifacts=lambda *_args, **_kwargs: None,
             end_run=lambda: None,
         ),
     )
@@ -194,6 +195,7 @@ def test_azure_mlflow_callback_prefers_existing_azure_run_id(
             start_run=fake_start_run,
             log_params=lambda *_args, **_kwargs: None,
             log_artifact=lambda *_args, **_kwargs: None,
+            log_artifacts=lambda *_args, **_kwargs: None,
             end_run=lambda: None,
         ),
     )
@@ -239,6 +241,7 @@ def test_azure_mlflow_callback_attaches_to_job_run_without_resetting_experiment(
             start_run=fake_start_run,
             log_params=lambda *_args, **_kwargs: None,
             log_artifact=lambda *_args, **_kwargs: None,
+            log_artifacts=lambda *_args, **_kwargs: None,
             end_run=lambda: None,
         ),
     )
@@ -270,6 +273,7 @@ def test_azure_mlflow_callback_logs_phase_metrics_with_epoch_steps(
             ),
             log_params=lambda *_args, **_kwargs: None,
             log_artifact=lambda *_args, **_kwargs: None,
+            log_artifacts=lambda *_args, **_kwargs: None,
             log_metrics=lambda metrics, step: metric_events.append((metrics, step)),
             end_run=lambda: None,
         ),
@@ -296,6 +300,47 @@ def test_azure_mlflow_callback_logs_phase_metrics_with_epoch_steps(
         ({"validation/accuracy": 0.75}, 1),
         ({"general/state/global_step": 32.0}, 1),
     ]
+
+
+def test_azure_mlflow_callback_uploads_full_outputs_run_dir_for_local_runs(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Local Azure MLflow runs should upload the full outputs-backed run tree."""
+    run_dir = tmp_path / "outputs" / "artifacts" / "demo-experiment" / "demo-run"
+    (run_dir / "metrics").mkdir(parents=True)
+    (run_dir / "metrics" / "summary.json").write_text("{}", encoding="utf-8")
+    uploads: list[Path] = []
+
+    monkeypatch.setattr(
+        "dl_azure.callbacks.mlflow.mlflow",
+        SimpleNamespace(
+            set_tracking_uri=lambda *_args, **_kwargs: None,
+            set_experiment=lambda *_args, **_kwargs: None,
+            active_run=lambda: None,
+            start_run=lambda **_kwargs: SimpleNamespace(
+                info=SimpleNamespace(run_id="child-run-999")
+            ),
+            log_params=lambda *_args, **_kwargs: None,
+            log_artifact=lambda *_args, **_kwargs: None,
+            log_artifacts=lambda path: uploads.append(Path(path)),
+            end_run=lambda: None,
+        ),
+    )
+
+    trainer = _DummyTrainer()
+    trainer.config["runtime"]["output_dir"] = "outputs/artifacts"
+    trainer.artifact_manager = SimpleNamespace(
+        run_dir=str(run_dir),
+        output_dir="outputs/artifacts",
+    )
+
+    callback = AzureMlflowCallback()
+    callback.set_trainer(trainer)
+    callback.on_training_start()
+    callback.on_training_end()
+
+    assert uploads == [run_dir]
 
 
 def test_azure_mlflow_metrics_source_prefers_remote_metrics(
