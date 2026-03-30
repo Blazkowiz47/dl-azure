@@ -1,4 +1,4 @@
-"""Azure scaffold extension for dl-init-experiment."""
+"""Azure scaffold extension for dl-init."""
 
 from __future__ import annotations
 

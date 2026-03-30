@@ -34,7 +34,7 @@ uv add "deep-learning-core[azure]" deep-learning-azure
 - Azure ML executor
 - Azure storage helpers and AzCopy wrappers
 - Azure dataset wrappers
-- Azure experiment scaffold integration through `dl-init-experiment`
+- Azure experiment scaffold integration through `dl-init --with-azure`
 
 ## Out Of Scope
 
@@ -50,7 +50,7 @@ Install it into an experiment repository through the Azure extra:
 uv add "deep-learning-core[azure]" deep-learning-azure
 ```
 
-If the repository was scaffolded with `dl-init-experiment --with-azure`, the
+If the repository was scaffolded with `dl-init --with-azure`, the
 experiment package will import `dl_azure` automatically so its executor
 and generic dataset wrappers register at runtime, and the scaffold will also
 create `azure-config.json`.
@@ -63,7 +63,7 @@ Concrete experiment flow:
 ```bash
 uv init
 uv add deep-learning-azure
-uv run dl-init-experiment --root-dir . --with-azure
+uv run dl-init --root-dir . --with-azure
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
 uv run dl-sweep experiments/lr_sweep.yaml --dry-run
 ```
@@ -95,7 +95,7 @@ uv run dl-core add dataset AzureStreamSeq --base azure_streaming_multiframe
   `AzureComputeWrapper`, `AzureStreamingWrapper`,
   `AzureComputeFrameWrapper`, `AzureStreamingFrameWrapper`,
   `AzureComputeMultiFrameWrapper`, and `AzureStreamingMultiFrameWrapper`
-- `dl-init-experiment --with-azure` scaffold integration
+- `dl-init --with-azure` scaffold integration
 - a managed `.amlignore` block that preserves user content while excluding
   common local-only outputs from Azure submissions
 - Azure job output routing to `outputs/artifacts` for automatic artifact

@@ -9,7 +9,7 @@ Create it from `dl-core`:
 
 ```bash
 uv add "dl-core[azure]"
-uv run dl-init-experiment --name my-exp --root-dir . --with-azure
+uv run dl-init --name my-exp --root-dir . --with-azure
 ```
 
 Using `--with-azure` is recommended because the scaffold switches the generated
