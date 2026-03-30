@@ -55,8 +55,9 @@ experiment package will import `dl_azure` automatically so its executor
 and generic dataset wrappers register at runtime, and the scaffold will also
 create `azure-config.json`.
 
-The Azure executor is sweep-oriented. Use `dl-sweep --dry-run` before the first
-real submission in a new repository.
+The Azure executor is sweep-oriented. Use
+`uv run dl-sweep experiments/lr_sweep.yaml --dry-run` before the first real
+submission in a new repository.
 
 Concrete experiment flow:
 
