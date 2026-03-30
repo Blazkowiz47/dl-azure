@@ -11,10 +11,7 @@ not leak into plain `deep-learning-core` installations.
 
 ## Install
 
-The package is now available on PyPI under the `deep-learning-azure` name.
-TestPyPI remains available for validation flows.
-
-PyPI install target:
+Install from PyPI through the core extra:
 
 ```bash
 pip install "deep-learning-core[azure]"
@@ -26,7 +23,7 @@ Install the package directly:
 pip install deep-learning-azure
 ```
 
-Current TestPyPI + `uv` projects should add both direct dependencies:
+Install in a `uv` project:
 
 ```bash
 uv add "deep-learning-core[azure]" deep-learning-azure
