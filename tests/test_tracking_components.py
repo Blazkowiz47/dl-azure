@@ -6,9 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from pytest import MonkeyPatch
+import yaml
 
 import dl_azure
 from dl_azure.callbacks.mlflow import AzureMlflowCallback
+from dl_azure.metrics_sources.azure_mlflow import AzureMlflowMetricsSource
 from dl_azure.trackers.azure_mlflow import AzureMlflowTracker
 from dl_core.core import CALLBACK_REGISTRY, METRICS_SOURCE_REGISTRY, TRACKER_REGISTRY
 
@@ -39,12 +41,109 @@ class _DummyTrainer:
         self.artifact_manager = SimpleNamespace(run_dir=".", output_dir="artifacts")
 
 
+class _DummyMetricPoint:
+    """Minimal MLflow metric history point for tests."""
+
+    def __init__(self, step: int, value: float) -> None:
+        self.step = step
+        self.value = value
+
+
 def test_azure_tracker_and_metrics_source_are_registered() -> None:
     """Importing dl-azure should register tracker, metrics source, and callback."""
     assert dl_azure.__version__ == "0.0.6"
     assert TRACKER_REGISTRY.is_registered("azure_mlflow")
     assert METRICS_SOURCE_REGISTRY.is_registered("azure_mlflow")
     assert CALLBACK_REGISTRY.is_registered("azure_mlflow")
+
+
+def test_azure_metrics_source_populates_remote_selection_fields(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Azure metrics source should reconstruct selection fields from MLflow."""
+    config_path = tmp_path / "backbone_sweep_run.yaml"
+    config_path.write_text(
+        yaml.dump(
+            {
+                "callbacks": {
+                    "checkpoint": {"monitor": "test/accuracy", "mode": "max"}
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    histories = {
+        "test/accuracy": [
+            _DummyMetricPoint(step=1, value=0.75),
+            _DummyMetricPoint(step=2, value=0.82),
+            _DummyMetricPoint(step=3, value=0.8),
+        ],
+        "test/loss": [
+            _DummyMetricPoint(step=1, value=0.9),
+            _DummyMetricPoint(step=2, value=0.7),
+            _DummyMetricPoint(step=3, value=0.6),
+        ],
+    }
+
+    class _FakeClient:
+        def __init__(self, tracking_uri: str) -> None:
+            self.tracking_uri = tracking_uri
+
+        def get_run(self, run_id: str) -> SimpleNamespace:
+            assert run_id == "azure-run-123"
+            return SimpleNamespace(
+                info=SimpleNamespace(status="FINISHED"),
+                data=SimpleNamespace(
+                    metrics={
+                        "test/accuracy": 0.8,
+                        "test/loss": 0.6,
+                    },
+                    tags={"mlflow.runName": "azure-backbone-run"},
+                ),
+            )
+
+        def get_metric_history(
+            self,
+            run_id: str,
+            metric_name: str,
+        ) -> list[_DummyMetricPoint]:
+            assert run_id == "azure-run-123"
+            return histories.get(metric_name, [])
+
+    monkeypatch.setattr(
+        "dl_azure.metrics_sources.azure_mlflow.mlflow.tracking.MlflowClient",
+        _FakeClient,
+    )
+
+    source = AzureMlflowMetricsSource()
+    record = source.collect_run(
+        run_index=0,
+        run_data={
+            "status": "completed",
+            "config_path": str(config_path),
+            "tracking_run_name": "backbone_sweep_run",
+            "tracking_run_ref": {
+                "backend": "azure_mlflow",
+                "run_id": "azure-run-123",
+                "tracking_uri": "azureml://tracking",
+            },
+        },
+        sweep_data={
+            "tracking_backend": "azure_mlflow",
+            "metrics_source_backend": "azure_mlflow",
+        },
+    )
+
+    assert record["selection_metric"] == "test/accuracy"
+    assert record["selection_mode"] == "max"
+    assert record["selection_value"] == 0.82
+    assert record["best_epoch"] == 2
+    assert record["final_metrics"]["test/accuracy"] == 0.8
+    assert record["best_metrics"]["test/accuracy"] == 0.82
+    assert record["best_metrics"]["test/loss"] == 0.7
 
 
 def test_azure_mlflow_callback_uses_tracking_config(

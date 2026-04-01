@@ -543,6 +543,7 @@ class AzureComputeExecutor(BaseExecutor):
                 # Process completed runs
                 for future in as_completed(future_to_index):
                     run_index = future_to_index[future]
+                    config_path = run_lookup[run_index]
                     try:
                         result = future.result()
                         success = result.get("success", False)
@@ -552,28 +553,24 @@ class AzureComputeExecutor(BaseExecutor):
 
                         if success:
                             self.completed_runs.append(run_index)
-                            # Update sweep tracker with completion status
-                            if self.tracker and tracking_run_id:
-                                self.tracker.update_run_status(
-                                    run_index,
-                                    status="completed",
-                                    tracking_run_id=tracking_run_id,
-                                    tracking_run_name=run_name,
-                                )
+                            self._update_tracker(
+                                run_index,
+                                "completed",
+                                config_path,
+                                result=result,
+                            )
                             self.logger.info(
                                 f"Job {run_index + 1}/{total_runs} completed successfully "
                                 f"(tracking ID: {tracking_run_id})"
                             )
                         elif unknown:
                             self.unknown_runs.append(run_index)
-                            # Update sweep tracker with unknown status
-                            if self.tracker:
-                                self.tracker.update_run_status(
-                                    run_index,
-                                    status="unknown",
-                                    tracking_run_id=tracking_run_id,
-                                    tracking_run_name=run_name,
-                                )
+                            self._update_tracker(
+                                run_index,
+                                "unknown",
+                                config_path,
+                                result=result,
+                            )
                             self.logger.warning(
                                 f"Job {run_index + 1}/{total_runs} status unknown - "
                                 "verify manually in Azure ML Studio "
@@ -581,25 +578,23 @@ class AzureComputeExecutor(BaseExecutor):
                             )
                         else:
                             self.failed_runs.append(run_index)
-                            # Update sweep tracker with failure status
-                            if self.tracker:
-                                self.tracker.update_run_status(
-                                    run_index,
-                                    status="failed",
-                                    tracking_run_id=tracking_run_id,
-                                    tracking_run_name=run_name,
-                                )
+                            self._update_tracker(
+                                run_index,
+                                "failed",
+                                config_path,
+                                result=result,
+                            )
                             self.logger.error(
                                 f"Job {run_index + 1}/{total_runs} failed"
                             )
                     except Exception as e:
                         self.failed_runs.append(run_index)
-                        # Update sweep tracker with failure status
-                        if self.tracker:
-                            self.tracker.update_run_status(
-                                run_index,
-                                status="failed",
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "failed",
+                            config_path,
+                            error_message=str(e),
+                        )
                         self.logger.error(
                             f"Job {run_index + 1}/{total_runs} failed with exception: {e}"
                         )
@@ -622,28 +617,24 @@ class AzureComputeExecutor(BaseExecutor):
 
                     if success:
                         self.completed_runs.append(run_index)
-                        # Update sweep tracker with completion status
-                        if self.tracker and tracking_run_id:
-                            self.tracker.update_run_status(
-                                run_index,
-                                status="completed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "completed",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.info(
                             f"Job {run_index + 1}/{total_runs} completed "
                             f"(tracking ID: {tracking_run_id})"
                         )
                     elif unknown:
                         self.unknown_runs.append(run_index)
-                        # Update sweep tracker with unknown status
-                        if self.tracker:
-                            self.tracker.update_run_status(
-                                run_index,
-                                status="unknown",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "unknown",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.warning(
                             f"Job {run_index + 1}/{total_runs} status unknown - "
                             "verify manually in Azure ML Studio "
@@ -651,25 +642,23 @@ class AzureComputeExecutor(BaseExecutor):
                         )
                     else:
                         self.failed_runs.append(run_index)
-                        # Update sweep tracker with failure status
-                        if self.tracker:
-                            self.tracker.update_run_status(
-                                run_index,
-                                status="failed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "failed",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.error(
                             f"Job {run_index + 1}/{total_runs} submission failed"
                         )
                 except Exception as e:
                     self.failed_runs.append(run_index)
-                    # Update sweep tracker with failure status
-                    if self.tracker:
-                        self.tracker.update_run_status(
-                            run_index,
-                            status="failed",
-                        )
+                    self._update_tracker(
+                        run_index,
+                        "failed",
+                        config_path,
+                        error_message=str(e),
+                    )
                     self.logger.error(f"Job {run_index + 1}/{total_runs} failed: {e}")
 
         # Retry failed runs if retry_limit > 0
@@ -727,52 +716,46 @@ class AzureComputeExecutor(BaseExecutor):
 
                     if success:
                         self.completed_runs.append(run_index)
-                        # Update sweep tracker with completion status
-                        if self.tracker and tracking_run_id:
-                            self.tracker.update_run_status(
-                                run_index,
-                                status="completed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "completed",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.info(
                             f"[RETRY {retry_attempt}] ✓ Job {run_index + 1} succeeded"
                         )
                     elif unknown:
                         self.unknown_runs.append(run_index)
-                        # Update sweep tracker with unknown status
-                        if self.tracker:
-                            self.tracker.update_run_status(
-                                run_index,
-                                status="unknown",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "unknown",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.warning(
                             f"[RETRY {retry_attempt}] Job {run_index + 1} status unknown - "
                             "verify manually in Azure ML Studio"
                         )
                     else:
                         self.failed_runs.append(run_index)
-                        # Update sweep tracker with failure status
-                        if self.tracker:
-                            self.tracker.update_run_status(
-                                run_index,
-                                status="failed",
-                                tracking_run_id=tracking_run_id,
-                                tracking_run_name=run_name,
-                            )
+                        self._update_tracker(
+                            run_index,
+                            "failed",
+                            config_path,
+                            result=result,
+                        )
                         self.logger.error(
                             f"[RETRY {retry_attempt}] Job {run_index + 1} failed again"
                         )
                 except Exception as e:
                     self.failed_runs.append(run_index)
-                    # Update sweep tracker with failure status
-                    if self.tracker:
-                        self.tracker.update_run_status(
-                            run_index,
-                            status="failed",
-                        )
+                    self._update_tracker(
+                        run_index,
+                        "failed",
+                        config_path,
+                        error_message=str(e),
+                    )
                     self.logger.error(
                         f"[RETRY {retry_attempt}] Job {run_index + 1} failed with exception: {e}"
                     )
