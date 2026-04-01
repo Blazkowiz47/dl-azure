@@ -87,11 +87,20 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
             local_record["selection_value"] = selection_value
 
         if best_epoch is not None:
+            best_metric_names = self._select_best_epoch_metric_names(
+                remote_final,
+                remote_selection_metric,
+            )
             best_metrics = self._collect_best_metrics(
                 client,
                 run_id,
-                remote_final,
+                best_metric_names,
                 best_epoch,
+                prefetched_history=(
+                    {remote_selection_metric: remote_history}
+                    if remote_selection_metric
+                    else None
+                ),
             )
             merged_best = dict(best_metrics)
             merged_best.update(local_record.get("best_metrics", {}))
@@ -243,17 +252,37 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
 
         return best_epoch, best_value
 
+    def _select_best_epoch_metric_names(
+        self,
+        remote_final: dict[str, Any],
+        selection_metric: str | None,
+    ) -> list[str]:
+        """Select which remote metric histories to inspect for best-epoch values."""
+        metric_names = [
+            metric_name
+            for metric_name in remote_final
+            if metric_name.startswith("test/")
+            or metric_name.startswith("validation/")
+        ]
+        if selection_metric and selection_metric not in metric_names:
+            metric_names.append(selection_metric)
+        return metric_names
+
     def _collect_best_metrics(
         self,
         client: mlflow.tracking.MlflowClient,
         run_id: str,
-        remote_final: dict[str, Any],
+        metric_names: list[str],
         best_epoch: int,
+        prefetched_history: dict[str, list[dict[str, int | float]]] | None = None,
     ) -> dict[str, float]:
         """Collect remote metric values recorded at the selected best epoch."""
         best_metrics: dict[str, float] = {}
-        for metric_name in remote_final:
-            history = self._fetch_metric_history(client, run_id, metric_name)
+        history_cache = prefetched_history or {}
+        for metric_name in metric_names:
+            history = history_cache.get(metric_name)
+            if history is None:
+                history = self._fetch_metric_history(client, run_id, metric_name)
             value_at_epoch = next(
                 (
                     float(point["value"])

@@ -86,7 +86,13 @@ def test_azure_metrics_source_populates_remote_selection_fields(
             _DummyMetricPoint(step=2, value=0.7),
             _DummyMetricPoint(step=3, value=0.6),
         ],
+        "train/loss": [
+            _DummyMetricPoint(step=1, value=1.1),
+            _DummyMetricPoint(step=2, value=0.9),
+            _DummyMetricPoint(step=3, value=0.8),
+        ],
     }
+    metric_history_calls: list[str] = []
 
     class _FakeClient:
         def __init__(self, tracking_uri: str) -> None:
@@ -100,6 +106,7 @@ def test_azure_metrics_source_populates_remote_selection_fields(
                     metrics={
                         "test/accuracy": 0.8,
                         "test/loss": 0.6,
+                        "train/loss": 0.8,
                     },
                     tags={"mlflow.runName": "azure-backbone-run"},
                 ),
@@ -111,6 +118,7 @@ def test_azure_metrics_source_populates_remote_selection_fields(
             metric_name: str,
         ) -> list[_DummyMetricPoint]:
             assert run_id == "azure-run-123"
+            metric_history_calls.append(metric_name)
             return histories.get(metric_name, [])
 
     monkeypatch.setattr(
@@ -144,6 +152,9 @@ def test_azure_metrics_source_populates_remote_selection_fields(
     assert record["final_metrics"]["test/accuracy"] == 0.8
     assert record["best_metrics"]["test/accuracy"] == 0.82
     assert record["best_metrics"]["test/loss"] == 0.7
+    assert "train/loss" not in record["best_metrics"]
+    assert metric_history_calls.count("test/accuracy") == 1
+    assert metric_history_calls == ["test/accuracy", "test/loss"]
 
 
 def test_azure_mlflow_callback_uses_tracking_config(
