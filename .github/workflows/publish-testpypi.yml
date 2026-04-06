@@ -40,6 +40,11 @@ jobs:
           import tomllib
 
           pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          core_dependency = next(
+              dependency
+              for dependency in pyproject["project"]["dependencies"]
+              if dependency.startswith("deep-learning-core")
+          )
           dependencies = [
               dependency
               for dependency in pyproject["project"]["dependencies"]
@@ -64,6 +69,10 @@ jobs:
               + "\n",
               encoding="utf-8",
           )
+          Path("requirements-core.txt").write_text(
+              core_dependency + "\n",
+              encoding="utf-8",
+          )
           PY
           uv pip install --python .venv/bin/python -r requirements-ci.txt
           uv pip install \
@@ -72,7 +81,7 @@ jobs:
             --index https://test.pypi.org/simple/ \
             --index-strategy unsafe-best-match \
             --no-deps \
-            deep-learning-core
+            -r requirements-core.txt
           uv pip install --python .venv/bin/python --no-deps --editable .
 
       - name: Run tests
