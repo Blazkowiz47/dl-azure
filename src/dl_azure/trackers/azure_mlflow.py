@@ -8,12 +8,33 @@ from typing import Any
 import mlflow
 from azureml.core import Workspace
 
-from dl_core.core import BaseTracker, register_tracker
+from dl_core.core import BaseTracker, config_field, register_tracker
 
 
 @register_tracker("azure_mlflow")
 class AzureMlflowTracker(BaseTracker):
     """Tracker metadata adapter for Azure MLflow-backed runs."""
+
+    CONFIG_FIELDS = BaseTracker.CONFIG_FIELDS + [
+        config_field(
+            "tracking_uri",
+            "str | None",
+            "Explicit Azure MLflow tracking URI. Overrides workspace discovery.",
+            default=None,
+        ),
+        config_field(
+            "azure_config_path",
+            "str",
+            "Workspace config path used when deriving the Azure MLflow URI.",
+            default="azure-config.json",
+        ),
+        config_field(
+            "sweep_name",
+            "str | None",
+            "Optional Azure MLflow parent run name for the sweep.",
+            default=None,
+        ),
+    ]
 
     def __init__(self, tracking_config: dict[str, Any] | None = None, **kwargs: Any):
         """Initialize tracker state for Azure MLflow-backed sweeps."""

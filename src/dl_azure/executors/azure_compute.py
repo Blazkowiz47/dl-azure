@@ -19,7 +19,7 @@ from azure.storage.blob import (
     AccountSasPermissions,
 )
 
-from dl_core.core import BaseExecutor, register_executor
+from dl_core.core import BaseExecutor, config_field, register_executor
 
 _AMLIGNORE_BEGIN = "# BEGIN dl-azure managed block"
 _AMLIGNORE_END = "# END dl-azure managed block"
@@ -35,6 +35,57 @@ class AzureComputeExecutor(BaseExecutor):
     - MLflow logs to Azure workspace
     - Jobs run on compute cluster
     """
+
+    CONFIG_FIELDS = [
+        config_field(
+            "compute_target",
+            "str",
+            "Azure ML compute cluster name used for submitted jobs.",
+            required=True,
+        ),
+        config_field(
+            "environment_name",
+            "str",
+            "Azure ML environment name used when submitting jobs.",
+            default="dl_lab",
+        ),
+        config_field(
+            "environment_version",
+            "str",
+            "Azure ML environment version to resolve.",
+            default="latest",
+        ),
+        config_field(
+            "datastore_name",
+            "str | None",
+            "Optional datastore mounted into each Azure job.",
+            default=None,
+        ),
+        config_field(
+            "process_count_per_node",
+            "int",
+            "Number of distributed worker processes to launch per node.",
+            default=1,
+        ),
+        config_field(
+            "dont_wait_for_completion",
+            "bool",
+            "Submit jobs asynchronously instead of blocking until completion.",
+            default=False,
+        ),
+        config_field(
+            "retry_limit",
+            "int",
+            "Maximum number of retry submissions for failed runs.",
+            default=0,
+        ),
+        config_field(
+            "azure_config_path",
+            "str",
+            "Path to the Azure workspace config JSON file.",
+            default="azure-config.json",
+        ),
+    ]
 
     def __init__(
         self,
