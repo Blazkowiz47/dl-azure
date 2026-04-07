@@ -88,6 +88,9 @@ uv run dl-analyze --sweep experiments/lr_sweep.yaml \
   --rank-method rank-sum
 ```
 
+Those fetched metric histories are cached in `analysis_cache.json` next to
+`sweep_tracking.json`. Use `--force` to refresh them.
+
 Concrete dataset scaffold examples:
 
 ```bash

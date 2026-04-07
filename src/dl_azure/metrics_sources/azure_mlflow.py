@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import mlflow
@@ -23,10 +24,12 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
     ) -> None:
         """Prefetch remote MLflow runs once per sweep."""
         ranking_specs = self._get_requested_ranking_specs(sweep_data)
+        force_refresh = bool(sweep_data.get("_force_analysis_refresh"))
         prefetched_runs = sweep_data.setdefault("_azure_mlflow_prefetched_runs", {})
         prefetched_errors = sweep_data.setdefault("_azure_mlflow_prefetch_errors", {})
         clients = sweep_data.setdefault("_azure_mlflow_clients", {})
         history_cache = sweep_data.setdefault("_azure_mlflow_metric_history_cache", {})
+        persistent_cache = self._get_persistent_runs_cache(sweep_data)
 
         for _, run_data in run_items:
             tracking_ref = run_data.get("tracking_run_ref") or {}
@@ -49,10 +52,46 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
                 if progress_callback is not None:
                     progress_callback()
                 continue
-            if run_id in prefetched_runs or run_id in prefetched_errors:
+            if run_id in prefetched_errors:
                 if progress_callback is not None:
                     progress_callback()
                 continue
+
+            run_cache = persistent_cache.setdefault(run_id, {})
+            if not isinstance(run_cache, dict):
+                run_cache = {}
+                persistent_cache[run_id] = run_cache
+            run_history_cache = history_cache.setdefault(run_id, {})
+            if not isinstance(run_history_cache, dict):
+                run_history_cache = {}
+                history_cache[run_id] = run_history_cache
+
+            cached_final = run_cache.get("final_metrics")
+            if (
+                not force_refresh
+                and isinstance(cached_final, dict)
+                and isinstance(run_cache.get("metric_history"), dict)
+            ):
+                cached_metric_history = run_cache["metric_history"]
+                all_cached = True
+                for ranking_spec in ranking_specs:
+                    resolved_metric = self._resolve_remote_metric_name(
+                        cached_final,
+                        ranking_spec["metric"],
+                    )
+                    if not isinstance(resolved_metric, str):
+                        all_cached = False
+                        break
+                    cached_history = cached_metric_history.get(resolved_metric)
+                    if not isinstance(cached_history, list):
+                        all_cached = False
+                        break
+                    run_history_cache[resolved_metric] = cached_history
+                if all_cached:
+                    prefetched_runs[run_id] = self._build_cached_run(run_cache)
+                    if progress_callback is not None:
+                        progress_callback()
+                    continue
 
             client = clients.get(tracking_uri)
             if client is None:
@@ -62,8 +101,15 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
             try:
                 run = client.get_run(run_id)
                 prefetched_runs[run_id] = run
-                run_history_cache = history_cache.setdefault(run_id, {})
                 remote_final = dict(run.data.metrics)
+                run_cache["tracking_uri"] = tracking_uri
+                run_cache["status"] = getattr(run.info, "status", None)
+                run_cache["run_name"] = run.data.tags.get("mlflow.runName")
+                run_cache["final_metrics"] = remote_final
+                cached_metric_history = run_cache.setdefault("metric_history", {})
+                if not isinstance(cached_metric_history, dict):
+                    cached_metric_history = {}
+                    run_cache["metric_history"] = cached_metric_history
                 for ranking_spec in ranking_specs:
                     resolved_metric = self._resolve_remote_metric_name(
                         remote_final,
@@ -79,6 +125,10 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
                         resolved_metric,
                         history_cache=run_history_cache,
                     )
+                    if resolved_metric in run_history_cache:
+                        cached_metric_history[resolved_metric] = run_history_cache[
+                            resolved_metric
+                        ]
             except Exception as exc:
                 prefetched_errors[run_id] = str(exc)
 
@@ -121,6 +171,12 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
             return local_record
 
         run = prefetched_runs.get(run_id) if isinstance(prefetched_runs, dict) else None
+        if run is None:
+            run_cache = self._get_persistent_runs_cache(sweep_data).get(run_id)
+            if isinstance(run_cache, dict):
+                run = self._build_cached_run(run_cache)
+            if run is not None:
+                prefetched_runs[run_id] = run
         if run is None:
             try:
                 run = client.get_run(run_id)
@@ -350,6 +406,43 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
             if _normalize_metric_key(metric_name) == normalized_selection:
                 return metric_name
         return selection_metric
+
+    def _get_persistent_runs_cache(
+        self,
+        sweep_data: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        """Return the persistent Azure analysis cache for this sweep."""
+        analysis_cache = sweep_data.setdefault("_analysis_cache", {})
+        if not isinstance(analysis_cache, dict):
+            analysis_cache = {}
+            sweep_data["_analysis_cache"] = analysis_cache
+        backend_cache = analysis_cache.setdefault("azure_mlflow", {})
+        if not isinstance(backend_cache, dict):
+            backend_cache = {}
+            analysis_cache["azure_mlflow"] = backend_cache
+        runs_cache = backend_cache.setdefault("runs", {})
+        if not isinstance(runs_cache, dict):
+            runs_cache = {}
+            backend_cache["runs"] = runs_cache
+        return runs_cache
+
+    def _build_cached_run(self, run_cache: dict[str, Any]) -> Any | None:
+        """Build a lightweight MLflow-like run object from cached data."""
+        final_metrics = run_cache.get("final_metrics")
+        if not isinstance(final_metrics, dict):
+            return None
+        run_name = run_cache.get("run_name")
+        return SimpleNamespace(
+            info=SimpleNamespace(status=run_cache.get("status")),
+            data=SimpleNamespace(
+                metrics=final_metrics,
+                tags=(
+                    {"mlflow.runName": run_name}
+                    if isinstance(run_name, str) and run_name
+                    else {}
+                ),
+            ),
+        )
 
     def _fetch_metric_history(
         self,
