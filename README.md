@@ -91,6 +91,15 @@ uv run dl-analyze --sweep experiments/lr_sweep.yaml \
 Those fetched metric histories are cached in `analysis_cache.json` next to
 `sweep_tracking.json`. Use `--force` to refresh them.
 
+If you want the tracked Azure job outputs locally after the sweep finishes, run:
+
+```bash
+uv run dl-sync --sweep experiments/lr_sweep.yaml --artifacts
+```
+
+That downloads the Azure job bundle for each tracked run and patches
+`sweep_tracking.json` with the resolved local artifact paths.
+
 Concrete dataset scaffold examples:
 
 ```bash

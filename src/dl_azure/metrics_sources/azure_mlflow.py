@@ -2,19 +2,112 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import shutil
+import tempfile
 from types import SimpleNamespace
 from typing import Any
 
 import mlflow
+from azure.ai.ml import MLClient
+from azure.identity import DefaultAzureCredential
 
 from dl_core.core import register_metrics_source
 from dl_core.metrics_sources.local import LocalMetricsSource, _normalize_metric_key
+from dl_core.project import find_project_root
 
 
 @register_metrics_source("azure_mlflow")
 class AzureMlflowMetricsSource(LocalMetricsSource):
     """Read Azure MLflow-backed sweep results with local artifact fallback."""
+
+    def sync_run_artifacts(
+        self,
+        run_index: int,
+        run_data: dict[str, Any],
+        sweep_data: dict[str, Any],
+        *,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Download Azure job artifacts into the expected local run directory."""
+        synced_paths = super().sync_run_artifacts(
+            run_index,
+            run_data,
+            sweep_data,
+            force=force,
+        )
+        artifact_dir_value = synced_paths.get("artifact_dir")
+        summary_value = synced_paths.get("metrics_summary_path")
+        history_value = synced_paths.get("metrics_history_path")
+        if (
+            not force
+            and isinstance(artifact_dir_value, str)
+            and artifact_dir_value
+            and isinstance(summary_value, str)
+            and summary_value
+            and isinstance(history_value, str)
+            and history_value
+        ):
+            return synced_paths
+
+        tracking_ref = run_data.get("tracking_run_ref") or {}
+        if not isinstance(tracking_ref, dict):
+            return synced_paths
+
+        run_id = tracking_ref.get("run_id") or run_data.get("tracking_run_id")
+        if not isinstance(run_id, str) or not run_id:
+            return synced_paths
+
+        config_path_value = synced_paths.get("config_path")
+        config_path = Path(config_path_value) if isinstance(config_path_value, str) else (
+            self._resolve_config_path(run_index, run_data, sweep_data)
+        )
+        artifact_dir = (
+            Path(artifact_dir_value)
+            if isinstance(artifact_dir_value, str) and artifact_dir_value
+            else self._infer_artifact_dir(run_data, config_path)
+        )
+        if artifact_dir is None:
+            return synced_paths
+
+        client = self._get_sync_ml_client(sweep_data)
+        with tempfile.TemporaryDirectory(prefix="dl_azure_sync_") as temp_dir:
+            download_root = Path(temp_dir)
+            client.jobs.download(run_id, download_path=str(download_root), all=True)
+            downloaded_root = self._find_downloaded_artifact_root(download_root)
+            if downloaded_root is None:
+                return synced_paths
+
+            if force and artifact_dir.exists():
+                shutil.rmtree(artifact_dir)
+            artifact_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(downloaded_root, artifact_dir, dirs_exist_ok=True)
+
+        summary_path = self._resolve_metrics_path(
+            run_data,
+            artifact_dir,
+            filename="summary.json",
+            tracker_key="metrics_summary_path",
+        )
+        history_path = self._resolve_metrics_path(
+            run_data,
+            artifact_dir,
+            filename="history.json",
+            tracker_key="metrics_history_path",
+        )
+        return {
+            "config_path": str(config_path) if config_path is not None else None,
+            "artifact_dir": str(artifact_dir),
+            "metrics_summary_path": (
+                str(summary_path) if summary_path is not None and summary_path.exists()
+                else None
+            ),
+            "metrics_history_path": (
+                str(history_path) if history_path is not None and history_path.exists()
+                else None
+            ),
+        }
 
     def prepare_sweep(
         self,
@@ -338,6 +431,64 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
                 }
             )
         return ranking_entries
+
+    def _get_sync_ml_client(self, sweep_data: dict[str, Any]) -> MLClient:
+        """Build or reuse an Azure ML client for artifact download."""
+        cached_client = sweep_data.get("_azure_sync_ml_client")
+        if isinstance(cached_client, MLClient):
+            return cached_client
+
+        azure_config_path = self._resolve_azure_config_path(sweep_data)
+        with open(azure_config_path, "r", encoding="utf-8") as handle:
+            azure_config = json.load(handle)
+
+        client = MLClient(
+            credential=DefaultAzureCredential(),
+            subscription_id=azure_config["subscription_id"],
+            resource_group_name=azure_config["resource_group"],
+            workspace_name=azure_config["workspace_name"],
+        )
+        sweep_data["_azure_sync_ml_client"] = client
+        return client
+
+    def _resolve_azure_config_path(self, sweep_data: dict[str, Any]) -> Path:
+        """Resolve the experiment-local Azure workspace config path."""
+        sweep_path_value = sweep_data.get("_sweep_path")
+        if not isinstance(sweep_path_value, str) or not sweep_path_value:
+            raise FileNotFoundError("Sweep path is required for Azure artifact sync")
+
+        project_root = find_project_root(Path(sweep_path_value))
+        if project_root is None:
+            raise FileNotFoundError(
+                "Could not resolve project root for Azure artifact sync"
+            )
+
+        azure_config_path = project_root / "azure-config.json"
+        if not azure_config_path.exists():
+            raise FileNotFoundError(
+                f"Azure config not found for artifact sync: {azure_config_path}"
+            )
+        return azure_config_path
+
+    def _find_downloaded_artifact_root(self, download_root: Path) -> Path | None:
+        """Find the run artifact root inside a downloaded Azure job bundle."""
+        candidates: list[Path] = []
+        for summary_path in download_root.rglob("summary.json"):
+            if summary_path.parent.name != "metrics":
+                continue
+            if summary_path.parent.parent.name != "final":
+                continue
+            candidates.append(summary_path.parents[2])
+
+        if not candidates:
+            for config_path in download_root.rglob("config.yaml"):
+                candidate = config_path.parent
+                if (candidate / "final").is_dir():
+                    candidates.append(candidate)
+
+        if not candidates:
+            return None
+        return min(candidates, key=lambda path: len(path.parts))
 
     def _map_run_status(self, status: str | None) -> str:
         """Map MLflow run statuses into analyzer statuses."""
