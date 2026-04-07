@@ -78,6 +78,16 @@ from `artifacts` to `outputs/artifacts` inside the remote job. That keeps
 checkpoints, plots, metrics, and other run files under Azure ML's managed
 output directory without changing the local default artifact layout.
 
+When you analyze an Azure-backed sweep with `dl-analyze`, the Azure metrics
+source fetches only the metric histories requested on the CLI, for example:
+
+```bash
+uv run dl-analyze --sweep experiments/lr_sweep.yaml \
+  --metric test/eer --mode min \
+  --metric test/accuracy --mode max \
+  --rank-method rank-sum
+```
+
 Concrete dataset scaffold examples:
 
 ```bash
