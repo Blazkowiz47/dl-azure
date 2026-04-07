@@ -15,6 +15,56 @@ from dl_core.metrics_sources.local import LocalMetricsSource, _normalize_metric_
 class AzureMlflowMetricsSource(LocalMetricsSource):
     """Read Azure MLflow-backed sweep results with local artifact fallback."""
 
+    def prepare_sweep(
+        self,
+        run_items: list[tuple[int, dict[str, Any]]],
+        sweep_data: dict[str, Any],
+        progress_callback: Any | None = None,
+    ) -> None:
+        """Prefetch remote MLflow runs once per sweep."""
+        prefetched_runs = sweep_data.setdefault("_azure_mlflow_prefetched_runs", {})
+        prefetched_errors = sweep_data.setdefault("_azure_mlflow_prefetch_errors", {})
+        clients = sweep_data.setdefault("_azure_mlflow_clients", {})
+
+        for _, run_data in run_items:
+            tracking_ref = run_data.get("tracking_run_ref") or {}
+            if not isinstance(tracking_ref, dict):
+                if progress_callback is not None:
+                    progress_callback()
+                continue
+
+            run_id = tracking_ref.get("run_id") or run_data.get("tracking_run_id")
+            tracking_uri = (
+                tracking_ref.get("tracking_uri")
+                or run_data.get("tracking_uri")
+                or sweep_data.get("tracking_uri")
+            )
+            if not isinstance(run_id, str) or not run_id:
+                if progress_callback is not None:
+                    progress_callback()
+                continue
+            if not isinstance(tracking_uri, str) or not tracking_uri:
+                if progress_callback is not None:
+                    progress_callback()
+                continue
+            if run_id in prefetched_runs or run_id in prefetched_errors:
+                if progress_callback is not None:
+                    progress_callback()
+                continue
+
+            client = clients.get(tracking_uri)
+            if client is None:
+                client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+                clients[tracking_uri] = client
+
+            try:
+                prefetched_runs[run_id] = client.get_run(run_id)
+            except Exception as exc:
+                prefetched_errors[run_id] = str(exc)
+
+            if progress_callback is not None:
+                progress_callback()
+
     def collect_run(
         self,
         run_index: int,
@@ -38,9 +88,32 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
         if not isinstance(tracking_uri, str) or not tracking_uri:
             return local_record
 
-        try:
+        clients = sweep_data.setdefault("_azure_mlflow_clients", {})
+        client = clients.get(tracking_uri)
+        if client is None:
             client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
-            run = client.get_run(run_id)
+            clients[tracking_uri] = client
+
+        prefetched_errors = sweep_data.get("_azure_mlflow_prefetch_errors", {})
+        prefetched_runs = sweep_data.get("_azure_mlflow_prefetched_runs", {})
+        if isinstance(prefetched_errors, dict) and run_id in prefetched_errors:
+            local_record["metrics_source_warning"] = str(prefetched_errors[run_id])
+            return local_record
+
+        run = prefetched_runs.get(run_id) if isinstance(prefetched_runs, dict) else None
+        if run is None:
+            try:
+                run = client.get_run(run_id)
+            except Exception as exc:
+                local_record["metrics_source_warning"] = str(exc)
+                return local_record
+
+        try:
+            history_cache = sweep_data.setdefault(
+                "_azure_mlflow_metric_history_cache",
+                {},
+            )
+            run_history_cache = history_cache.setdefault(run_id, {})
         except Exception as exc:
             local_record["metrics_source_warning"] = str(exc)
             return local_record
@@ -68,6 +141,7 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
             client,
             run_id,
             remote_selection_metric,
+            history_cache=run_history_cache,
         )
 
         best_epoch, best_value = self._resolve_best_epoch(
@@ -96,6 +170,7 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
                 run_id,
                 best_metric_names,
                 best_epoch,
+                history_cache=run_history_cache,
                 prefetched_history=(
                     {remote_selection_metric: remote_history}
                     if remote_selection_metric
@@ -193,10 +268,13 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
         client: mlflow.tracking.MlflowClient,
         run_id: str,
         metric_name: str | None,
+        history_cache: dict[str, list[dict[str, int | float]]] | None = None,
     ) -> list[dict[str, int | float]]:
         """Fetch one remote MLflow metric history in normalized form."""
         if not metric_name:
             return []
+        if history_cache is not None and metric_name in history_cache:
+            return history_cache[metric_name]
 
         try:
             history = client.get_metric_history(run_id, metric_name)
@@ -213,10 +291,13 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
                 continue
             step_to_value[step] = float(value)
 
-        return [
+        normalized_history = [
             {"step": step, "value": step_to_value[step]}
             for step in sorted(step_to_value)
         ]
+        if history_cache is not None:
+            history_cache[metric_name] = normalized_history
+        return normalized_history
 
     def _resolve_best_epoch(
         self,
@@ -258,14 +339,28 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
         selection_metric: str | None,
     ) -> list[str]:
         """Select which remote metric histories to inspect for best-epoch values."""
-        metric_names = [
-            metric_name
-            for metric_name in remote_final
-            if metric_name.startswith("test/")
-            or metric_name.startswith("validation/")
+        preferred_metric_names = [
+            "test/loss",
+            "test/accuracy",
+            "validation/loss",
+            "validation/accuracy",
         ]
-        if selection_metric and selection_metric not in metric_names:
-            metric_names.append(selection_metric)
+        metric_names: list[str] = []
+        if selection_metric:
+            preferred_metric_names.insert(0, selection_metric)
+
+        for preferred_metric in preferred_metric_names:
+            resolved_metric = self._resolve_remote_metric_name(
+                remote_final,
+                preferred_metric,
+            )
+            if not isinstance(resolved_metric, str):
+                continue
+            if resolved_metric not in remote_final:
+                continue
+            if resolved_metric in metric_names:
+                continue
+            metric_names.append(resolved_metric)
         return metric_names
 
     def _collect_best_metrics(
@@ -274,15 +369,22 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
         run_id: str,
         metric_names: list[str],
         best_epoch: int,
+        history_cache: dict[str, list[dict[str, int | float]]] | None = None,
         prefetched_history: dict[str, list[dict[str, int | float]]] | None = None,
     ) -> dict[str, float]:
         """Collect remote metric values recorded at the selected best epoch."""
         best_metrics: dict[str, float] = {}
-        history_cache = prefetched_history or {}
         for metric_name in metric_names:
-            history = history_cache.get(metric_name)
+            history = None
+            if prefetched_history is not None:
+                history = prefetched_history.get(metric_name)
             if history is None:
-                history = self._fetch_metric_history(client, run_id, metric_name)
+                history = self._fetch_metric_history(
+                    client,
+                    run_id,
+                    metric_name,
+                    history_cache=history_cache,
+                )
             value_at_epoch = next(
                 (
                     float(point["value"])
