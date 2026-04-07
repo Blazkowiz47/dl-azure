@@ -143,7 +143,7 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
         merged_final.update(local_record.get("final_metrics", {}))
         local_record["final_metrics"] = merged_final
 
-        ranking_entries = self._build_requested_ranking_entries(
+        ranking_entries = self._build_remote_ranking_entries(
             client=client,
             run_id=run_id,
             remote_final=remote_final,
@@ -239,7 +239,7 @@ class AzureMlflowMetricsSource(LocalMetricsSource):
 
         return local_record
 
-    def _build_requested_ranking_entries(
+    def _build_remote_ranking_entries(
         self,
         *,
         client: mlflow.tracking.MlflowClient,
