@@ -59,9 +59,7 @@ class AzureComputeMixin(ABC):
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
         self.input_name: str = self.config.get("input_name", "dataset_path")
-        self.allow_local_fallback: bool = self.config.get(
-            "allow_local_fallback", True
-        )
+        self.allow_local_fallback: bool = self.config.get("allow_local_fallback", True)
         self.local_fallback_root: str = self.config.get("local_fallback_root", ".")
         self.root_dir = self._resolve_compute_root_dir(self.config.get("root_dir"))
 
@@ -162,8 +160,7 @@ class AzureStreamingMixin(ABC):
         self.container_name = self.config.get("container_name")
         if not self.container_name:
             raise ValueError(
-                "Azure streaming datasets require 'container_name' in dataset "
-                "config."
+                "Azure streaming datasets require 'container_name' in dataset config."
             )
         self.azure_service = AzureClientService(self.azure_config)
 
@@ -342,8 +339,8 @@ class AzureFrameMixin(ABC):
         if not hasattr(self, "cache") or self.cache is None:
             return None
 
-        cache_prefix = "face_detected_image" if self.use_face_detection else (
-            "resized_image"
+        cache_prefix = (
+            "face_detected_image" if self.use_face_detection else ("resized_image")
         )
         return self.cache.get_cached_image(f"{cache_prefix}/{image_path}")
 
@@ -355,8 +352,8 @@ class AzureFrameMixin(ABC):
         if not hasattr(self, "cache") or self.cache is None:
             return
 
-        cache_prefix = "face_detected_image" if self.use_face_detection else (
-            "resized_image"
+        cache_prefix = (
+            "face_detected_image" if self.use_face_detection else ("resized_image")
         )
         self.cache.cache_image_async(f"{cache_prefix}/{image_path}", image)
 
@@ -431,9 +428,7 @@ class AzureComputeFrameWrapper(AzureFrameMixin, AzureComputeMixin, FrameWrapper)
     """Azure ML mounted frame dataset wrapper."""
 
 
-class AzureStreamingFrameWrapper(
-    AzureFrameMixin, AzureStreamingMixin, FrameWrapper
-):
+class AzureStreamingFrameWrapper(AzureFrameMixin, AzureStreamingMixin, FrameWrapper):
     """Azure blob-backed frame dataset wrapper."""
 
 
@@ -467,6 +462,56 @@ class AzureMultiFrameMixin(ABC):
     ) -> dict[str, Any]:
         """Build the metadata dictionary for one frame record."""
 
+    def sample_frames_from_video(
+        self,
+        files: list[str],
+        common_fields: dict[str, Any],
+        rng: random.Random,
+    ) -> list[dict[str, Any]]:
+        """
+        Build multiframe sample records from one video's sorted frame paths.
+
+        In ``random`` mode, the method draws ``num_frames`` unique frames per
+        sample and produces as many samples as fit into the source list. In
+        ``consecutive`` mode, it walks the sorted frames in windows of
+        ``num_frames`` using ``frame_stride`` to skip frames between windows.
+
+        Args:
+            files: Sorted frame paths for a single video.
+            common_fields: Metadata copied into every sampled record.
+            rng: Random generator seeded for deterministic epoch-level sampling.
+
+        Returns:
+            List of sample dictionaries containing the inherited metadata, a
+            representative ``path``, and the selected frame tuple in ``paths``.
+        """
+
+        sampled_files: list[dict[str, Any]] = []
+        if self.mode == "random":
+            num_samples = len(files) // self.num_frames
+            for _ in range(num_samples):
+                selected_frames = tuple(rng.sample(files, self.num_frames))
+                sampled_files.append(
+                    {
+                        **common_fields,
+                        "path": selected_frames[0],
+                        "paths": selected_frames,
+                    }
+                )
+            return sampled_files
+
+        stride = self.num_frames + self.frame_stride
+        for start_idx in range(0, len(files) - self.num_frames + 1, stride):
+            selected_frames = tuple(files[start_idx : start_idx + self.num_frames])
+            sampled_files.append(
+                {
+                    **common_fields,
+                    "path": selected_frames[0],
+                    "paths": selected_frames,
+                }
+            )
+        return sampled_files
+
     def convert_groups_to_files(
         self,
         video_groups: dict[str, dict[str, list[str]]],
@@ -494,35 +539,9 @@ class AzureMultiFrameMixin(ABC):
                     if key not in {"path", "paths"}
                 }
 
-                if self.mode == "random":
-                    num_samples = len(sorted_frames) // self.num_frames
-                    for _ in range(num_samples):
-                        selected_frames = tuple(
-                            rng.sample(sorted_frames, self.num_frames)
-                        )
-                        files.append(
-                            {
-                                **common_fields,
-                                "path": selected_frames[0],
-                                "paths": selected_frames,
-                            }
-                        )
-                    continue
-
-                stride = self.num_frames + self.frame_stride
-                for start_idx in range(
-                    0, len(sorted_frames) - self.num_frames + 1, stride
-                ):
-                    selected_frames = tuple(
-                        sorted_frames[start_idx : start_idx + self.num_frames]
-                    )
-                    files.append(
-                        {
-                            **common_fields,
-                            "path": selected_frames[0],
-                            "paths": selected_frames,
-                        }
-                    )
+                files.extend(
+                    self.sample_frames_from_video(sorted_frames, common_fields, rng)
+                )
 
         self.logger.info(
             f"Created {len(files)} multiframe samples for {split} "
@@ -556,13 +575,9 @@ class AzureMultiFrameMixin(ABC):
         }
 
 
-class AzureComputeMultiFrameWrapper(
-    AzureMultiFrameMixin, AzureComputeFrameWrapper
-):
+class AzureComputeMultiFrameWrapper(AzureMultiFrameMixin, AzureComputeFrameWrapper):
     """Azure ML mounted multiframe dataset wrapper."""
 
 
-class AzureStreamingMultiFrameWrapper(
-    AzureMultiFrameMixin, AzureStreamingFrameWrapper
-):
+class AzureStreamingMultiFrameWrapper(AzureMultiFrameMixin, AzureStreamingFrameWrapper):
     """Azure blob-backed multiframe dataset wrapper."""
