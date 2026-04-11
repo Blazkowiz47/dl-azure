@@ -110,6 +110,66 @@ uv run dl-core add dataset AzureStream --base azure_streaming
 uv run dl-core add dataset AzureStreamSeq --base azure_streaming_multiframe
 ```
 
+## Dataset Wrapper Notes
+
+Use the compute wrappers when the dataset is already mounted into the Azure ML
+job or available locally through a compatible directory layout:
+
+- `AzureComputeWrapper`
+- `AzureComputeFrameWrapper`
+- `AzureComputeMultiFrameWrapper`
+
+Compute wrappers resolve the dataset root in this order:
+
+- `dataset.root_dir`
+- `AZURE_ML_INPUT_<input_name>`
+- `dataset.local_fallback_root` when `dataset.allow_local_fallback` is `true`
+
+Use the streaming wrappers when you want to read directly from blob storage
+instead of relying on an Azure ML input mount:
+
+- `AzureStreamingWrapper`
+- `AzureStreamingFrameWrapper`
+- `AzureStreamingMultiFrameWrapper`
+
+Streaming wrappers require `dataset.container_name` and an Azure storage config
+that provides `account_name`, either in `azure-config.json` or inline in the
+dataset config.
+
+Frame wrappers share a few image-specific settings:
+
+- `height` / `width` for the output tensor shape
+- `resize_height` / `resize_width` for pre-augmentation resizing
+- `use_face_detection` to enable metadata-driven face crops
+- `margin` as an int, two-item sequence, or `{height, width}` mapping
+
+If you enable `face_detected_and_resized_cache`, processed frame images are
+stored in the wrapper cache when a cache backend is available. That is most
+useful for the streaming frame wrappers, where blob reads can be cached locally.
+
+Multiframe wrappers add one `multiframe` block:
+
+```yaml
+dataset:
+  name: AzureSeq
+  input_name: dataset_path
+  allow_local_fallback: true
+  local_fallback_root: data/my_dataset
+  height: 224
+  width: 224
+  use_face_detection: true
+  face_detected_and_resized_cache: true
+  multiframe:
+    mode: consecutive
+    num_frames: 5
+    frame_stride: 2
+```
+
+`multiframe.mode: random` draws `num_frames` unique frames per sample.
+`multiframe.mode: consecutive` walks each video in fixed windows and uses
+`frame_stride` to skip frames between windows. Videos with fewer than
+`num_frames` frames are skipped.
+
 ## What You Get
 
 - the `azure` executor

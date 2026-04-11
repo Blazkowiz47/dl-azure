@@ -51,15 +51,53 @@ The scaffold creates `azure-config.json` in the repository root. Replace the
 placeholder values before submission. If you need to keep that file elsewhere,
 set `executor.azure_config_path` to the alternate location.
 
-## Step 5: Choose the Dataset Path
+## Step 5: Choose the Dataset Wrapper and Path
 
 Use one of the generic Azure dataset base wrappers as the parent for your
-project-specific dataset wrapper. For mounted Azure ML inputs, pass either:
+project-specific dataset wrapper:
+
+- `AzureComputeWrapper` for mounted image datasets
+- `AzureComputeFrameWrapper` for mounted frame datasets
+- `AzureComputeMultiFrameWrapper` for mounted multiframe datasets
+- `AzureStreamingWrapper` for direct blob-backed image datasets
+- `AzureStreamingFrameWrapper` for direct blob-backed frame datasets
+- `AzureStreamingMultiFrameWrapper` for direct blob-backed multiframe datasets
+
+For mounted Azure ML inputs, pass either:
 
 - `dataset.root_dir` for an explicit local or mounted path
 - `dataset.input_name` to resolve `AZURE_ML_INPUT_<input_name>`
 
-The compute wrappers read from that resolved root directory directly.
+If you also want the same config to work outside Azure ML, keep
+`dataset.allow_local_fallback: true` and point `dataset.local_fallback_root`
+at a compatible local dataset root.
+
+For streaming datasets, set `dataset.container_name` and provide Azure storage
+credentials through `azure-config.json` or inline dataset config fields such as
+`account_name`.
+
+A typical multiframe dataset block looks like this:
+
+```yaml
+dataset:
+  name: AzureSeq
+  input_name: dataset_path
+  allow_local_fallback: true
+  local_fallback_root: data/my_dataset
+  height: 224
+  width: 224
+  use_face_detection: true
+  face_detected_and_resized_cache: true
+  multiframe:
+    mode: random
+    num_frames: 5
+    frame_stride: 0
+```
+
+Use `multiframe.mode: random` to sample unique frames per video, or
+`multiframe.mode: consecutive` to walk through sorted frame windows. Frame
+wrappers also support `resize_height`, `resize_width`, and `margin` when you
+need control over resizing or face crop margins.
 
 ## Step 6: Dry-Run Before Submission
 
