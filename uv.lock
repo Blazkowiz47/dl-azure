@@ -979,7 +979,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.0.18"
+version = "0.0.20"
 source = { editable = "../dl-core" }
 dependencies = [
     { name = "albumentations" },
