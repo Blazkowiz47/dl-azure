@@ -53,6 +53,23 @@ def _azure_tracking_fields() -> str:
 """
 
 
+def _append_azure_agents_note(agents_md: str) -> str:
+    """Append Azure-specific guidance to the generated AGENTS.md."""
+    note = (
+        "    <rule>\n"
+        "      For non-training Azure ML jobs, set `executor.command` in the\n"
+        "      sweep config to override the default worker command. Prefer\n"
+        "      plain `python ...` commands and use `{config_path}` when the\n"
+        "      script should receive the generated run config.\n"
+        "    </rule>\n"
+        "  </cli_examples>\n"
+    )
+    marker = "  </cli_examples>\n"
+    if note in agents_md or marker not in agents_md:
+        return agents_md
+    return agents_md.replace(marker, note, 1)
+
+
 def _inject_azure_tracking_fields(content: str) -> str:
     """Inject Azure MLflow tracking fields into the sweep scaffold."""
 
@@ -272,7 +289,13 @@ class AzureInitExtension(InitExtension):
         context.append_bootstrap_import("import dl_azure  # noqa: F401")
         context.append_readme_note(
             "Azure support is enabled. Fill in `azure-config.json` and the "
-            "`executors.azure` preset placeholders before submitting runs."
+            "`executors.azure` preset placeholders before submitting runs. Set "
+            "`executor.command` when an Azure submission should run a custom "
+            "script instead of the default worker command."
+        )
+        context.set_file(
+            "AGENTS.md",
+            _append_azure_agents_note(context.get_file("AGENTS.md")),
         )
         context.replace_in_file(
             Path("configs") / "base.yaml",

@@ -45,6 +45,21 @@ fixed:
     retry_limit: 0
 ```
 
+For non-training Azure jobs, set `executor.command` to override the default
+worker command:
+
+```yaml
+fixed:
+  executor:
+    name: azure
+    compute_target: gpu-cluster
+    environment_name: dl_lab
+    command: python scripts/custom_job.py --config {config_path}
+```
+
+Prefer plain `python ...` commands on Azure ML. The environment already
+selects the interpreter and dependencies for the remote job.
+
 ## Dry-Run First
 
 ```bash

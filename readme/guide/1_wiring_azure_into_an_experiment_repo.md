@@ -45,6 +45,21 @@ fixed:
     datastore_name: my-datastore
 ```
 
+If you want Azure to run a custom script instead of the default
+`dl_core.worker` entrypoint, add `executor.command`:
+
+```yaml
+fixed:
+  executor:
+    name: azure
+    compute_target: gpu-cluster
+    environment_name: dl_lab
+    command: python scripts/preprocessing/fix_nested_frame_dirs.py --config {config_path}
+```
+
+Use plain `python ...` here rather than `uv run python ...`. The Azure ML
+environment already provides the interpreter and installed packages.
+
 ## Step 4: Fill In `azure-config.json`
 
 The scaffold creates `azure-config.json` in the repository root. Replace the
@@ -118,4 +133,5 @@ uv run dl-sweep experiments/lr_sweep.yaml
 ```
 
 Today the Azure path is sweep-oriented. The local-only `dl-run` path is still
-the normal single-run entrypoint.
+the normal single-run entrypoint. `executor.command` is the escape hatch when a
+sweep-managed Azure submission needs to run something other than training.

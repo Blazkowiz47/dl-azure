@@ -59,6 +59,12 @@ The Azure executor is sweep-oriented. Use
 `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` before the first real
 submission in a new repository.
 
+If you need Azure ML to run a custom script instead of the default
+`python -m dl_core.worker ...` command, set `executor.command` in the sweep
+config. Prefer plain `python ...` commands because the Azure ML environment
+already controls the runtime. The command string also supports placeholders
+such as `{config_path}` and `{run_name}`.
+
 Concrete experiment flow:
 
 ```bash
@@ -67,6 +73,18 @@ uv add deep-learning-azure
 uv run dl-init --root-dir . --with-azure
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
 uv run dl-sweep experiments/lr_sweep.yaml --dry-run
+```
+
+Example custom Azure submission:
+
+```yaml
+fixed:
+  executor:
+    name: azure
+    compute_target: gpu-cluster
+    environment_name: dl_lab
+    environment_version: latest
+    command: python scripts/preprocessing/fix_nested_frame_dirs.py --config {config_path}
 ```
 
 Tracker naming defaults to the repository root name. If you want Azure job

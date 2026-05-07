@@ -33,6 +33,12 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
                 "]\n"
             ),
             Path("README.md"): "# demo\n",
+            Path("AGENTS.md"): (
+                "<agent_spec>\n"
+                "  <cli_examples>\n"
+                "  </cli_examples>\n"
+                "</agent_spec>\n"
+            ),
             Path("src") / "bootstrap.py": (
                 '"""Project bootstrap hooks for local component loading."""\n'
             ),
@@ -82,6 +88,9 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert "executor.retry_limit: 0" in presets_text
     assert "executor.dont_wait_for_completion: false" in presets_text
     assert 'executor.azure_config_path: "azure-config.json"' in presets_text
+    assert "executor.command" in context.get_file("README.md")
+    assert "executor.command" in context.get_file("AGENTS.md")
+    assert "{config_path}" in context.get_file("AGENTS.md")
     assert '"subscription_id": "<subscription-id>"' in context.get_file(
         "azure-config.json"
     )
@@ -119,6 +128,12 @@ def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> No
                 "]\n"
             ),
             Path("README.md"): "# demo\n",
+            Path("AGENTS.md"): (
+                "<agent_spec>\n"
+                "  <cli_examples>\n"
+                "  </cli_examples>\n"
+                "</agent_spec>\n"
+            ),
             Path("src") / "bootstrap.py": (
                 '"""Project bootstrap hooks for local component loading."""\n'
             ),
