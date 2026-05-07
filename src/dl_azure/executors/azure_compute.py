@@ -3,6 +3,7 @@
 import fcntl
 import json
 import os
+import re
 import time
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,6 +24,9 @@ from dl_core.core import BaseExecutor, config_field, register_executor
 
 _AMLIGNORE_BEGIN = "# BEGIN dl-azure managed block"
 _AMLIGNORE_END = "# END dl-azure managed block"
+_COMMAND_PLACEHOLDER_PATTERN = re.compile(
+    r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})"
+)
 
 
 @register_executor("azure")
@@ -85,6 +89,14 @@ class AzureComputeExecutor(BaseExecutor):
             "Path to the Azure workspace config JSON file.",
             default="azure-config.json",
         ),
+        config_field(
+            "command",
+            "str | None",
+            "Optional Azure job command override. Supports placeholders such as "
+            "{config_path}, {run_name}, {run_index}, {run_number}, "
+            "{tracking_context}, and {tracking_uri}.",
+            default=None,
+        ),
     ]
 
     def __init__(
@@ -141,6 +153,75 @@ class AzureComputeExecutor(BaseExecutor):
         self.env_vars: Dict[str, str] = {}  # Environment variables for jobs
         self.azure_config: Dict[str, Any] = {}  # Azure config (loaded in setup)
         self.retry_attempts: Dict[int, int] = {}  # Track retry attempts per run index
+
+    def _resolve_custom_command(
+        self,
+        config_path: Path,
+        *,
+        run_index: int,
+        run_name: str,
+    ) -> Optional[str]:
+        """Resolve an optional custom Azure submission command."""
+        command_template = self.executor_config.get("command")
+        if command_template is None:
+            return None
+        if not isinstance(command_template, str):
+            raise TypeError("executor.command must be a string when provided.")
+
+        resolved = command_template.strip()
+        if not resolved:
+            return None
+
+        placeholders = {
+            "config_path": str(config_path),
+            "run_name": run_name,
+            "run_index": str(run_index),
+            "run_number": str(run_index + 1),
+            "tracking_context": self.tracking_context or "",
+            "tracking_uri": self.tracking_uri or "",
+        }
+        for name, value in placeholders.items():
+            resolved = resolved.replace(f"{{{name}}}", value)
+
+        unsupported = _COMMAND_PLACEHOLDER_PATTERN.search(resolved)
+        if unsupported is not None:
+            supported = ", ".join(
+                f"{{{name}}}"
+                for name in (
+                    "config_path",
+                    "run_name",
+                    "run_index",
+                    "run_number",
+                    "tracking_context",
+                    "tracking_uri",
+                )
+            )
+            raise ValueError(
+                "Unsupported executor.command placeholder "
+                f"{{{unsupported.group(1)}}}. Supported placeholders: {supported}."
+            )
+
+        return resolved
+
+    def _resolve_submission_command(
+        self,
+        config_path: Path,
+        run_config: Dict[str, Any],
+        *,
+        run_index: int,
+        run_name: str,
+    ) -> str:
+        """Resolve the concrete Azure ML command string for one run."""
+        custom_command = self._resolve_custom_command(
+            config_path,
+            run_index=run_index,
+            run_name=run_name,
+        )
+        if custom_command is not None:
+            return custom_command
+
+        cmd_list = self.build_command(str(config_path), run_config)
+        return " ".join(cmd_list)
 
     def _build_datastore_uri(self, datastore_name: str, path: str = "") -> str:
         """
@@ -945,9 +1026,12 @@ class AzureComputeExecutor(BaseExecutor):
                 # In dry-run, just mark that inputs would be present
                 inputs = {"dataset_path": f"<would mount: {datastore_uri}>"}
 
-        # Build command using base class method and convert list to string (Azure ML requires string)
-        cmd_list = self.build_command(str(config_path), run_config)
-        command_str = " ".join(cmd_list)
+        command_str = self._resolve_submission_command(
+            config_path,
+            run_config,
+            run_index=run_index,
+            run_name=run_name,
+        )
 
         self.logger.info(f"[Job {run_index + 1}] Command: {command_str}")
 
