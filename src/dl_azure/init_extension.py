@@ -56,18 +56,15 @@ def _azure_tracking_fields() -> str:
 def _append_azure_agents_note(agents_md: str) -> str:
     """Append Azure-specific guidance to the generated AGENTS.md."""
     note = (
-        "    <rule>\n"
-        "      For non-training Azure ML jobs, set `executor.command` in the\n"
-        "      sweep config to override the default worker command. Prefer\n"
-        "      plain `python ...` commands and use `{config_path}` when the\n"
-        "      script should receive the generated run config.\n"
-        "    </rule>\n"
-        "  </cli_examples>\n"
+        "\n## Azure Notes\n\n"
+        "- For non-training Azure ML jobs, set `executor.command` in the sweep "
+        "config to override the default worker command.\n"
+        "- Prefer plain `python ...` commands and use `{config_path}` when the "
+        "script should receive the generated run config.\n"
     )
-    marker = "  </cli_examples>\n"
-    if note in agents_md or marker not in agents_md:
+    if "## Azure Notes" in agents_md:
         return agents_md
-    return agents_md.replace(marker, note, 1)
+    return agents_md.rstrip() + note
 
 
 def _inject_azure_tracking_fields(content: str) -> str:
@@ -262,12 +259,26 @@ class AzureInitExtension(InitExtension):
 
     name = "azure"
 
+    def display_name(self) -> str:
+        """Return the prompt label for Azure support."""
+        return "Azure"
+
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Register the Azure scaffold flag."""
-        parser.add_argument(
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(
             "--with-azure",
+            dest="with_azure",
             action="store_true",
+            default=None,
             help="Include Azure executor wiring and azure-config.json.",
+        )
+        group.add_argument(
+            "--without-azure",
+            dest="with_azure",
+            action="store_false",
+            default=None,
+            help="Exclude Azure scaffold wiring even when dl-azure is installed.",
         )
 
     def is_enabled(
@@ -276,7 +287,8 @@ class AzureInitExtension(InitExtension):
         discovered_extensions: dict[str, InitExtension],
     ) -> bool:
         """Enable Azure wiring when explicitly requested."""
-        return bool(getattr(args, "with_azure", False))
+        del discovered_extensions
+        return self.selection_state(args) is True
 
     def apply(self, context: ScaffoldContext) -> None:
         """Apply Azure-specific scaffold mutations."""

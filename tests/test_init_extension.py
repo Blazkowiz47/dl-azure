@@ -34,10 +34,9 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
             ),
             Path("README.md"): "# demo\n",
             Path("AGENTS.md"): (
-                "<agent_spec>\n"
-                "  <cli_examples>\n"
-                "  </cli_examples>\n"
-                "</agent_spec>\n"
+                "# Demo Experiment Repository Guidelines\n\n"
+                "## CLI Examples\n\n"
+                "- `uv run dl-sweep experiments/lr_sweep.yaml --dry-run`\n"
             ),
             Path("src") / "bootstrap.py": (
                 '"""Project bootstrap hooks for local component loading."""\n'
@@ -129,10 +128,9 @@ def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> No
             ),
             Path("README.md"): "# demo\n",
             Path("AGENTS.md"): (
-                "<agent_spec>\n"
-                "  <cli_examples>\n"
-                "  </cli_examples>\n"
-                "</agent_spec>\n"
+                "# Demo Experiment Repository Guidelines\n\n"
+                "## CLI Examples\n\n"
+                "- `uv run dl-sweep experiments/lr_sweep.yaml --dry-run`\n"
             ),
             Path("src") / "bootstrap.py": (
                 '"""Project bootstrap hooks for local component loading."""\n'
