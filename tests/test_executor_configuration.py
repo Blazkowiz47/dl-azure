@@ -102,6 +102,57 @@ def test_resolve_submission_command_uses_executor_command_override() -> None:
     )
 
 
+def test_configured_parent_job_name_takes_precedence_over_resume_context() -> None:
+    """Explicit Azure parent job config should win over resume tracking context."""
+    executor = AzureComputeExecutor(
+        sweep_config={
+            "executor": {
+                "parent_job_name": "configured-parent-job",
+            }
+        },
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+        dry_run=True,
+        tracking_context="resume-parent-job",
+        resume=True,
+    )
+
+    executor.setup(total_runs=2)
+
+    assert executor.parent_job_name == "configured-parent-job"
+    assert executor.tracking_context == "configured-parent-job"
+
+
+def test_resume_context_is_used_as_parent_job_without_configured_parent() -> None:
+    """Resume behavior should still reuse the existing parent job context."""
+    executor = AzureComputeExecutor(
+        sweep_config={"executor": {}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+        dry_run=True,
+        tracking_context="resume-parent-job",
+        resume=True,
+    )
+
+    executor.setup(total_runs=2)
+
+    assert executor.parent_job_name == "resume-parent-job"
+    assert executor.tracking_context == "resume-parent-job"
+
+
+def test_configured_parent_job_name_requires_string() -> None:
+    """Azure parent job config should fail fast on invalid types."""
+    with pytest.raises(TypeError, match=r"executor\.parent_job_name"):
+        AzureComputeExecutor(
+            sweep_config={"executor": {"parent_job_name": 123}},
+            experiment_name="demo",
+            sweep_id="sweep-1",
+            compute_target="gpu-cluster",
+        )
+
+
 def test_resolve_submission_command_rejects_unknown_placeholders() -> None:
     """Azure executor should fail fast on unsupported custom command placeholders."""
 

@@ -14,6 +14,7 @@ executor:
   process_count_per_node: 1
   dont_wait_for_completion: false
   retry_limit: 0
+  # parent_job_name: existing-azure-parent-job
   # command: python scripts/custom_job.py --config {config_path}
 ```
 
@@ -38,6 +39,10 @@ executor:
 - `azure_config_path`
   - optional path to the Azure workspace config file
   - defaults to `azure-config.json`
+- `parent_job_name`
+  - optional existing Azure ML parent job name for child-job nesting
+  - takes precedence over the parent job inferred from `--resume`
+  - distinct from `tracking.parent_run_id`, which controls MLflow nesting
 - `command`
   - optional Azure ML command override for each submitted child job
   - when omitted, the executor submits the default `python -m dl_core.worker ...`

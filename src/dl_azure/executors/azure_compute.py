@@ -97,6 +97,13 @@ class AzureComputeExecutor(BaseExecutor):
             "{tracking_context}, and {tracking_uri}.",
             default=None,
         ),
+        config_field(
+            "parent_job_name",
+            "str | None",
+            "Existing Azure ML parent job name to nest child jobs under. "
+            "Takes precedence over resume-derived tracking context.",
+            default=None,
+        ),
     ]
 
     def __init__(
@@ -148,11 +155,41 @@ class AzureComputeExecutor(BaseExecutor):
         ).expanduser()
 
         self.ml_client: MLClient
+        self.configured_parent_job_name = self._resolve_configured_parent_job_name()
         self.parent_job_name = None  # Azure ML job name for parent
         self.tracking_uri = None
         self.env_vars: Dict[str, str] = {}  # Environment variables for jobs
         self.azure_config: Dict[str, Any] = {}  # Azure config (loaded in setup)
         self.retry_attempts: Dict[int, int] = {}  # Track retry attempts per run index
+
+    def _resolve_configured_parent_job_name(self) -> Optional[str]:
+        """Return the explicit Azure parent job configured for this executor."""
+        parent_job_name = self.executor_config.get("parent_job_name")
+        if parent_job_name is None:
+            return None
+        if not isinstance(parent_job_name, str):
+            raise TypeError("executor.parent_job_name must be a string when provided.")
+
+        parent_job_name = parent_job_name.strip()
+        return parent_job_name or None
+
+    def _use_existing_parent_job(self) -> tuple[bool, str]:
+        """
+        Reuse an existing Azure ML parent job when configured or resuming.
+
+        Returns:
+            Tuple of ``(used_existing_parent, source)``.
+        """
+        if self.configured_parent_job_name:
+            self.parent_job_name = self.configured_parent_job_name
+            self.tracking_context = self.parent_job_name
+            return True, "configured"
+
+        if self.resume and self.tracking_context:
+            self.parent_job_name = self.tracking_context
+            return True, "resume"
+
+        return False, ""
 
     def _resolve_custom_command(
         self,
@@ -408,12 +445,17 @@ class AzureComputeExecutor(BaseExecutor):
                     self.logger.info(
                         f"[DRY RUN]   Datastore: {self.datastore_name} ({datastore_uri})"
                     )
-                if self.resume and self.tracking_context:
-                    self.logger.info(
-                        "[DRY RUN]   Would resume under existing tracking context: "
-                        f"{self.tracking_context}"
+                used_parent_job, parent_source = self._use_existing_parent_job()
+                if used_parent_job:
+                    source_text = (
+                        "configured parent job"
+                        if parent_source == "configured"
+                        else "existing tracking context"
                     )
-                    self.parent_job_name = self.tracking_context
+                    self.logger.info(
+                        f"[DRY RUN]   Would use {source_text}: "
+                        f"{self.parent_job_name}"
+                    )
                 else:
                     self.logger.info(
                         f"[DRY RUN]   Would create parent job: {sweep_name}"
@@ -474,11 +516,15 @@ class AzureComputeExecutor(BaseExecutor):
                 self.update_amlignore(sweep_file_path)
                 self.logger.info("Updated .amlignore managed block for Azure sweep")
 
-            # If resuming and tracking_context provided, skip parent job creation
-            if self.resume and self.tracking_context:
-                self.parent_job_name = self.tracking_context
+            used_parent_job, parent_source = self._use_existing_parent_job()
+            if used_parent_job:
+                source_text = (
+                    "configured parent job"
+                    if parent_source == "configured"
+                    else "existing parent job"
+                )
                 self.logger.info(
-                    f"Resuming sweep under existing parent job: {self.parent_job_name}"
+                    f"Using {source_text}: {self.parent_job_name}"
                 )
                 return
 
