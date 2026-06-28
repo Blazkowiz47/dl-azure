@@ -34,6 +34,7 @@
 - Match existing style: 4-space indentation, `snake_case`, `PascalCase`, short module docstrings, and f-strings.
 - Prefer `apply_patch` for focused edits.
 - Do not overwrite unrelated user changes in a dirty tree.
+- Whenever package behavior, public APIs, CLI behavior, scaffold output, dependencies, or versions change, review `README.md` and the relevant `readme/` docs and keep them consistent with the code. If no documentation update is needed, state why.
 
 ## Package Rules
 

@@ -3,6 +3,9 @@
 This documentation covers the Azure adapter layer that sits on top of
 `dl-core`.
 
+Current public release: `deep-learning-azure==0.0.17`, requiring
+`deep-learning-core>=0.0.24,<0.1`.
+
 ## Related Packages
 
 - [`dl-core`](https://github.com/Blazkowiz47/dl-core)
