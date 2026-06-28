@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 DEFAULT_AZCOPY_MAX_RETRIES = 5
+AZCOPY_CONCURRENCY_PLAN: tuple[int | None, ...] = (None, 2, 2, 1, 1)
 
 
 class AzCopyTransferBase:
@@ -73,7 +74,7 @@ class AzCopyTransferBase:
             )
             return False
 
-        concurrency_plan = self._build_concurrency_plan()
+        concurrency_plan = AZCOPY_CONCURRENCY_PLAN[: self.max_retries]
         last_error = "Unknown AzCopy error"
 
         for attempt, concurrency_value in enumerate(concurrency_plan, start=1):
@@ -247,17 +248,6 @@ class AzCopyTransferBase:
         except OSError as error:
             logger.error(f"Failed to start AzCopy for {source_path}: {error}")
             return None
-
-    def _build_concurrency_plan(self) -> list[int | None]:
-        """
-        Build the retry concurrency plan for AzCopy uploads.
-
-        Returns:
-            Ordered list of concurrency values to try, where None means use
-            AzCopy defaults with no override.
-        """
-        plan: list[int | None] = [None, 2, 2, 1, 1]
-        return plan[: self.max_retries]
 
     @staticmethod
     def _looks_like_auth_error(output: str) -> bool:

@@ -230,11 +230,7 @@ class AzureBlobCache:
         # modifies the array after this call returns
         image_copy = image.copy()
         executor = _get_cache_executor()
-        executor.submit(self._cache_image_sync, blob_path, image_copy)
-
-    def _cache_image_sync(self, blob_path: str, image: np.ndarray) -> None:
-        """Internal synchronous cache image implementation."""
-        self.cache_image(blob_path, image)
+        executor.submit(self.cache_image, blob_path, image_copy)
 
     def cache_json_async(self, json_url: str, data: Dict[str, Any]) -> None:
         """
@@ -250,11 +246,7 @@ class AzureBlobCache:
         # Make a deep copy of the data to avoid race conditions
         data_copy = json.loads(json.dumps(data))
         executor = _get_cache_executor()
-        executor.submit(self._cache_json_sync, json_url, data_copy)
-
-    def _cache_json_sync(self, json_url: str, data: Dict[str, Any]) -> None:
-        """Internal synchronous cache json implementation."""
-        self.cache_json(json_url, data)
+        executor.submit(self.cache_json, json_url, data_copy)
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""

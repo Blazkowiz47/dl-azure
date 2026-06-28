@@ -75,16 +75,6 @@ def _flatten_dict(
     return dict(items)
 
 
-def _qualify_phase_metrics(
-    scalars: dict[str, float],
-    phase: str | None,
-) -> dict[str, float]:
-    """Return phase-qualified scalars for phase hooks."""
-    if phase is None:
-        return scalars
-    return {f"{phase}/{key}": value for key, value in scalars.items()}
-
-
 @register_callback("azure_mlflow")
 class AzureMlflowCallback(Callback):
     """Log training metadata and metrics to Azure MLflow."""
@@ -230,17 +220,6 @@ class AzureMlflowCallback(Callback):
             "outputs/"
         )
 
-    def _log_run_dir(self, run_dir: Path) -> None:
-        """Upload the full run directory when outputs-backed logging is used."""
-        if not run_dir.exists():
-            return
-        try:
-            mlflow.log_artifacts(str(run_dir))
-        except Exception as exc:
-            self.logger.warning(
-                f"Failed to upload Azure MLflow run directory {run_dir}: {exc}"
-            )
-
     def _log_default_artifacts(self) -> None:
         """Upload run artifacts when Azure does not persist them automatically."""
         artifact_manager = getattr(self.trainer, "artifact_manager", None)
@@ -251,7 +230,14 @@ class AzureMlflowCallback(Callback):
         if self._is_azure_job_run():
             return
         if self._should_log_full_run_dir(artifact_manager):
-            self._log_run_dir(run_dir)
+            if not run_dir.exists():
+                return
+            try:
+                mlflow.log_artifacts(str(run_dir))
+            except Exception as exc:
+                self.logger.warning(
+                    f"Failed to upload Azure MLflow run directory {run_dir}: {exc}"
+                )
             return
 
         self._log_artifact_if_exists(run_dir / "config.yaml", None)
@@ -381,12 +367,16 @@ class AzureMlflowCallback(Callback):
             return
 
         scalars = _extract_scalars(logs)
-        scalars = _qualify_phase_metrics(scalars, phase)
         if phase is None:
             scalars = {
                 key: value
                 for key, value in scalars.items()
                 if not key.startswith(("train/", "validation/", "test/"))
+            }
+        else:
+            scalars = {
+                f"{phase}/{key}": value
+                for key, value in scalars.items()
             }
         if not scalars:
             return

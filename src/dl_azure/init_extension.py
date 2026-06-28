@@ -47,12 +47,6 @@ def _azure_mlflow_callback_block() -> str:
 """
 
 
-def _azure_tracking_fields() -> str:
-    """Render Azure MLflow additions to the scaffold tracking block."""
-    return """  backend: azure_mlflow
-"""
-
-
 def _append_azure_agents_note(agents_md: str) -> str:
     """Append Azure-specific guidance to the generated AGENTS.md."""
     note = (
@@ -78,7 +72,7 @@ def _inject_azure_tracking_fields(content: str) -> str:
 
     return content.replace(
         "tracking:\n",
-        f"tracking:\n{_azure_tracking_fields()}",
+        "tracking:\n  backend: azure_mlflow\n",
         1,
     )
 
