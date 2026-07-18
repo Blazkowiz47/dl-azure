@@ -29,9 +29,6 @@ logging.getLogger("azure.identity").setLevel(logging.ERROR)
 class AzureClientService:
     """Centralized Azure client service using DefaultAzureCredential."""
 
-    # Class-level cache for container clients (shared across instances)
-    _container_clients: Dict[str, ContainerClient] = {}
-
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize Azure client service.
@@ -47,6 +44,7 @@ class AzureClientService:
 
         # Use DefaultAzureCredential for authentication
         self.credential = DefaultAzureCredential()
+        self._container_clients: Dict[str, ContainerClient] = {}
 
         logger.info(f"Initialized Azure client for account: {self.account_name}")
         logger.info(f"Using credential type: {type(self.credential).__name__}")
@@ -117,8 +115,8 @@ class AzureClientService:
         """
         Get a cached ContainerClient for a specific container.
 
-        Uses class-level caching to reuse ContainerClient instances,
-        which maintains HTTP connection pools for better performance.
+        Reuses ContainerClient instances within this authenticated service,
+        which maintains HTTP connection pools without crossing credentials.
 
         Args:
             container_name: Name of the container
@@ -126,15 +124,13 @@ class AzureClientService:
         Returns:
             Cached ContainerClient instance
         """
-        cache_key = f"{self.account_name}/{container_name}"
-
-        if cache_key not in self._container_clients:
+        if container_name not in self._container_clients:
             logger.debug(f"Creating new cached ContainerClient for: {container_name}")
-            self._container_clients[cache_key] = self.create_container_client(
+            self._container_clients[container_name] = self.create_container_client(
                 container_name
             )
 
-        return self._container_clients[cache_key]
+        return self._container_clients[container_name]
 
     def get_blob_client_pooled(self, container_name: str, blob_path: str) -> BlobClient:
         """
@@ -423,4 +419,3 @@ class AzureClientService:
             ) from exc
 
         return f"{self.get_blob_url(container_name, blob_path)}?{sas_token}"
-

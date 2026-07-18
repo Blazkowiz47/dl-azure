@@ -2,7 +2,6 @@
 
 import logging
 import os
-import shlex
 import shutil
 import subprocess
 import tempfile
@@ -227,23 +226,19 @@ class AzCopyTransferBase:
         Returns:
             Completed process on success, or None if the command could not start.
         """
-        if concurrency_value is None:
-            full_command = command
-            use_shell = False
-        else:
-            quoted_command = " ".join(shlex.quote(part) for part in command)
-            full_command = (
-                f"AZCOPY_CONCURRENCY_VALUE={concurrency_value} {quoted_command}"
-            )
-            use_shell = True
+        process_env = None
+        if concurrency_value is not None:
+            process_env = os.environ.copy()
+            process_env["AZCOPY_CONCURRENCY_VALUE"] = str(concurrency_value)
 
         try:
             return subprocess.run(
-                full_command,
+                command,
                 check=False,
                 capture_output=True,
                 text=True,
-                shell=use_shell,
+                shell=False,
+                env=process_env,
             )
         except OSError as error:
             logger.error(f"Failed to start AzCopy for {source_path}: {error}")

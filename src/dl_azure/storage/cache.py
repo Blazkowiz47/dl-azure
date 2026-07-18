@@ -12,6 +12,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import quote
 
 import cv2
 import numpy as np
@@ -42,8 +43,8 @@ class AzureBlobCache:
     """
     Simple file-based cache for Azure blob storage operations.
 
-    Caches both images and JSON metadata with hash-based filenames
-    to avoid collisions and provide fast lookup.
+    Caches both images and JSON metadata in an encoded hierarchy beneath the
+    configured cache root.
     """
 
     def __init__(self, cache_dir: str):
@@ -78,27 +79,41 @@ class AzureBlobCache:
         Returns:
             Path object for the cache file with hierarchical directory structure
         """
+        normalized_blob_path = blob_path.replace("\\", "/").lstrip("/")
+
         # Handle face detected images
-        is_face_detected = blob_path.startswith("face_detected_image/")
+        is_face_detected = normalized_blob_path.startswith("face_detected_image/")
         if is_face_detected:
             # Remove the face_detected_image/ prefix
-            blob_path = blob_path[len("face_detected_image/") :]
+            normalized_blob_path = normalized_blob_path[
+                len("face_detected_image/") :
+            ]
 
         # Remove 'data/' prefix if present
-        if blob_path.startswith("data/"):
-            relative_path = blob_path[len("data/") :]
-        else:
-            # Fallback to full path if data/ prefix not found
-            relative_path = blob_path
+        if normalized_blob_path.startswith("data/"):
+            normalized_blob_path = normalized_blob_path[len("data/") :]
+
+        encoded_parts: list[str] = []
+        for part in normalized_blob_path.split("/"):
+            if not part:
+                continue
+            if part == ".":
+                encoded_parts.append("%2E")
+            elif part == "..":
+                encoded_parts.append("%2E%2E")
+            else:
+                encoded_parts.append(quote(part, safe="-_.()"))
+        if not encoded_parts:
+            raise ValueError("blob_path must identify a file")
 
         # Split path into directory and filename
-        path_obj = Path(relative_path)
+        path_obj = Path(*encoded_parts)
         directory = path_obj.parent
         filename = path_obj.stem  # filename without extension
 
         # Add prefix for face detected images
         if is_face_detected:
-            directory = f"facedetected/{directory}"
+            directory = Path("facedetected") / directory
 
         # Construct final cache path with new extension
         if file_extension == ".json":
@@ -251,8 +266,8 @@ class AzureBlobCache:
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
         try:
-            image_count = len(list(self.images_dir.glob("*.png")))
-            json_count = len(list(self.metadata_dir.glob("*.json")))
+            image_count = len(list(self.images_dir.rglob("*.png")))
+            json_count = len(list(self.metadata_dir.rglob("*.json")))
 
             # Calculate cache size
             cache_size = 0

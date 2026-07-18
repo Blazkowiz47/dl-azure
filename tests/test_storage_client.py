@@ -108,3 +108,37 @@ def test_get_blob_sas_url_does_not_return_unsigned_fallback(
 
     with pytest.raises(RuntimeError, match="delegation denied"):
         _client(monkeypatch).get_blob_sas_url("images", "example.jpg")
+
+
+def test_container_client_cache_is_scoped_to_one_credential(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Container clients must not leak between authenticated service instances."""
+    credentials = iter(["credential-one", "credential-two"])
+    monkeypatch.setattr(
+        "dl_azure.storage.client.DefaultAzureCredential",
+        lambda: next(credentials),
+    )
+    first_service = AzureClientService({"account_name": "demoaccount"})
+    second_service = AzureClientService({"account_name": "demoaccount"})
+    first_container = object()
+    second_container = object()
+    first_calls: list[str] = []
+    second_calls: list[str] = []
+
+    def create_first(container_name: str) -> object:
+        first_calls.append(container_name)
+        return first_container
+
+    def create_second(container_name: str) -> object:
+        second_calls.append(container_name)
+        return second_container
+
+    monkeypatch.setattr(first_service, "create_container_client", create_first)
+    monkeypatch.setattr(second_service, "create_container_client", create_second)
+
+    assert first_service.get_container_client("images") is first_container
+    assert first_service.get_container_client("images") is first_container
+    assert second_service.get_container_client("images") is second_container
+    assert first_calls == ["images"]
+    assert second_calls == ["images"]

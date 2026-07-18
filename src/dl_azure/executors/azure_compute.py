@@ -551,11 +551,11 @@ class AzureComputeExecutor(BaseExecutor):
             self.logger.info(f"Created parent job: {self.parent_job_name}")
             self.logger.info(f"Display name: {sweep_name}")
 
-        except ImportError:
+        except ImportError as exc:
             raise RuntimeError(
                 "Azure mode requires azure-ai-ml. "
                 "Install: pip install azure-ai-ml azure-identity"
-            )
+            ) from exc
 
     def update_amlignore(self, sweep_file: str) -> None:
         """
