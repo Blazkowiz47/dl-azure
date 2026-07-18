@@ -30,62 +30,14 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
 
-      - name: Create virtual environment
-        run: uv venv
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python 3.11
 
-      - name: Install test dependencies
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import tomllib
-
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          core_dependency = next(
-              dependency
-              for dependency in pyproject["project"]["dependencies"]
-              if dependency.startswith("deep-learning-core")
-          )
-          dependencies = [
-              dependency
-              for dependency in pyproject["project"]["dependencies"]
-              if not dependency.startswith("deep-learning-core")
-          ]
-          dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
-          Path("requirements-ci.txt").write_text(
-              "\n".join(
-                  [
-                      *dependencies,
-                      *dev_dependencies,
-                      "albumentations",
-                      "numpy",
-                      "psutil",
-                      "scikit-learn",
-                      "torch",
-                      "torchvision",
-                      "tqdm",
-                      "twine",
-                  ]
-              )
-              + "\n",
-              encoding="utf-8",
-          )
-          Path("requirements-core.txt").write_text(
-              core_dependency + "\n",
-              encoding="utf-8",
-          )
-          PY
-          uv pip install --python .venv/bin/python -r requirements-ci.txt
-          uv pip install \
-            --python .venv/bin/python \
-            --default-index https://pypi.org/simple \
-            --index https://test.pypi.org/simple/ \
-            --index-strategy unsafe-best-match \
-            --no-deps \
-            -r requirements-core.txt
-          uv pip install --python .venv/bin/python --no-deps --editable .
+      - name: Run Ruff
+        run: uv run --no-sync ruff check src tests
 
       - name: Run tests
-        run: .venv/bin/python -m pytest
+        run: uv run --no-sync python -m pytest
 
       - name: Build distribution artifacts
         run: |
@@ -93,7 +45,7 @@ jobs:
           uv build --no-sources
 
       - name: Check distribution metadata
-        run: .venv/bin/python -m twine check dist/*
+        run: uv run --no-sync twine check dist/*
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v6
@@ -124,3 +76,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          verbose: true

@@ -2,11 +2,18 @@
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from azure.identity import DefaultAzureCredential
-from azure.storage.blob import BlobClient, ContainerClient
+from azure.storage.blob import (
+    BlobClient,
+    BlobSasPermissions,
+    BlobServiceClient,
+    ContainerClient,
+    generate_blob_sas,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -366,40 +373,54 @@ class AzureClientService:
         expiry_hours: int = 24,
         permissions: str = "r",
     ) -> str:
-        """
-        Get blob URL with SAS token for streaming access.
-
-        Note: SAS token generation requires account key. When using DefaultAzureCredential,
-        this method returns the blob URL without SAS. Ensure blobs are publicly accessible
-        or Azure credentials are properly configured.
+        """Get a blob URL with a user-delegation SAS token for streaming access.
 
         Args:
             container_name: Name of the container
             blob_path: Path to blob
-            expiry_hours: Hours until SAS token expires (unused with DefaultAzureCredential)
-            permissions: Permissions string ('r' for read, 'rw' for read/write)
+            expiry_hours: Positive number of hours until the SAS token expires
+            permissions: Azure Blob SAS permission string, such as ``r`` or ``rw``
 
         Returns:
-            Blob URL (without SAS token when using DefaultAzureCredential)
+            Blob URL containing a user-delegation SAS token
+
+        Raises:
+            ValueError: If expiry or permissions are invalid
+            RuntimeError: If Azure cannot issue the user-delegation key or SAS token
         """
+        if expiry_hours <= 0:
+            raise ValueError("expiry_hours must be greater than zero")
+        if not permissions or any(
+            permission not in "racwdxytmei" for permission in permissions
+        ):
+            raise ValueError(f"Unsupported blob SAS permissions: {permissions!r}")
+
+        start_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+        expiry_time = datetime.now(timezone.utc) + timedelta(hours=expiry_hours)
         try:
-            blob_client = self.get_blob_client_pooled(container_name, blob_path)
-
-            # Generate SAS token (requires account key, not supported with DefaultAzureCredential)
-            # For now, return URL without SAS - requires blob to be publicly accessible
-            # or caller must have proper Azure credentials configured
-            logger.warning(
-                f"SAS token generation requires account key. "
-                f"Returning URL without SAS for {blob_path}. "
-                f"Ensure blob is publicly accessible or Azure credentials are configured."
+            service_client = BlobServiceClient(
+                account_url=(
+                    f"https://{self.account_name}.blob.core.windows.net"
+                ),
+                credential=self.credential,
             )
-            return self.get_blob_url(container_name, blob_path)
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to get blob URL for {blob_path}: {e}"
+            delegation_key = service_client.get_user_delegation_key(
+                key_start_time=start_time,
+                key_expiry_time=expiry_time,
             )
-            # Fallback to regular URL
-            return self.get_blob_url(container_name, blob_path)
+            sas_token = generate_blob_sas(
+                account_name=self.account_name,
+                container_name=container_name,
+                blob_name=blob_path,
+                user_delegation_key=delegation_key,
+                permission=BlobSasPermissions.from_string(permissions),
+                start=start_time,
+                expiry=expiry_time,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to generate a user-delegation SAS URL for {blob_path}: {exc}"
+            ) from exc
 
+        return f"{self.get_blob_url(container_name, blob_path)}?{sas_token}"
 

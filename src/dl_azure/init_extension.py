@@ -61,6 +61,22 @@ def _append_azure_agents_note(agents_md: str) -> str:
     return agents_md.rstrip() + note
 
 
+def _append_gitignore_patterns(
+    context: ScaffoldContext,
+    *patterns: str,
+) -> None:
+    """Append Azure runtime outputs to the generated project gitignore."""
+    relative = Path(".gitignore")
+    content = context.files.get(relative, "")
+    existing_lines = set(content.splitlines())
+    missing = [pattern for pattern in patterns if pattern not in existing_lines]
+    if not missing:
+        return
+    prefix = content.rstrip()
+    suffix = "\n".join(missing)
+    context.set_file(relative, f"{prefix}\n{suffix}\n" if prefix else f"{suffix}\n")
+
+
 def _inject_azure_tracking_fields(content: str) -> str:
     """Inject Azure MLflow tracking fields into the sweep scaffold."""
 
@@ -286,12 +302,8 @@ class AzureInitExtension(InitExtension):
 
     def apply(self, context: ScaffoldContext) -> None:
         """Apply Azure-specific scaffold mutations."""
-        context.replace_in_file(
-            "pyproject.toml",
-            '"deep-learning-core"',
-            '"deep-learning-core[azure]"',
-        )
         context.add_dependency("deep-learning-azure")
+        _append_gitignore_patterns(context, "outputs/", "azure_logs/", "*.log")
         context.append_bootstrap_import("import dl_azure  # noqa: F401")
         context.append_readme_note(
             "Azure support is enabled. Fill in `azure-config.json` and the "

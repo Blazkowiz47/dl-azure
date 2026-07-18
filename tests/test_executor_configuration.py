@@ -37,6 +37,8 @@ def test_update_amlignore_preserves_user_content(tmp_path: Path) -> None:
     assert "lab/users/" not in rendered
     assert "lab/template/" not in rendered
     assert "outputs/" in rendered
+    assert ".env" in rendered
+    assert ".env.*" in rendered
 
 
 def test_build_command_uses_remote_python_for_azure_jobs() -> None:

@@ -491,11 +491,13 @@ class AzureComputeExecutor(BaseExecutor):
                     "Execution mode: Sequential (wait for each job to complete)"
             )
 
-            # Setup Azure MLflow tracking URI
-            from azureml.core import Workspace
-
-            ws = Workspace.from_config(path=str(self.azure_config_path))
-            self.tracking_uri = ws.get_mlflow_tracking_uri()
+            # Setup Azure MLflow tracking URI from the v2 workspace entity.
+            workspace = self.ml_client.workspaces.get(
+                self.azure_config["workspace_name"]
+            )
+            self.tracking_uri = (
+                workspace.mlflow_tracking_uri if workspace is not None else None
+            )
 
             # Get environment variables for jobs (includes SAS token generation if available)
             self.env_vars = self.get_job_environment_variables()
@@ -602,6 +604,8 @@ class AzureComputeExecutor(BaseExecutor):
             ".ruff_cache/",
             ".mypy_cache/",
             ".venv/",
+            ".env",
+            ".env.*",
             ".tox/",
             "dist/",
             "build/",
@@ -714,7 +718,6 @@ class AzureComputeExecutor(BaseExecutor):
                 # Submit all runs
                 future_to_index = {}
                 for run_index, config_path in run_descriptors:
-                    run_name = Path(config_path).stem
                     future = executor.submit(self.execute_run, run_index, config_path)
                     future_to_index[future] = run_index
 
@@ -727,7 +730,6 @@ class AzureComputeExecutor(BaseExecutor):
                         success = result.get("success", False)
                         unknown = result.get("unknown", False)
                         tracking_run_id = result.get("tracking_run_id")
-                        run_name = result.get("tracking_run_name")
 
                         if success:
                             self.completed_runs.append(run_index)
@@ -784,14 +786,11 @@ class AzureComputeExecutor(BaseExecutor):
 
             # Sequential execution
             for run_index, config_path in run_descriptors:
-                run_name = Path(config_path).stem
-
                 try:
                     result = self.execute_run(run_index, config_path)
                     success = result.get("success", False)
                     unknown = result.get("unknown", False)
                     tracking_run_id = result.get("tracking_run_id")
-                    run_name = result.get("tracking_run_name")
 
                     if success:
                         self.completed_runs.append(run_index)
@@ -889,8 +888,6 @@ class AzureComputeExecutor(BaseExecutor):
                     result = self.execute_run(run_index, config_path)
                     success = result.get("success", False)
                     unknown = result.get("unknown", False)
-                    tracking_run_id = result.get("tracking_run_id")
-                    run_name = result.get("tracking_run_name")
 
                     if success:
                         self.completed_runs.append(run_index)

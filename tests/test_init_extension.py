@@ -63,7 +63,9 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
 
     AzureInitExtension().apply(context)
 
-    assert '"deep-learning-core[azure]"' in context.get_file("pyproject.toml")
+    pyproject_text = context.get_file("pyproject.toml")
+    assert '"deep-learning-core"' in pyproject_text
+    assert '"deep-learning-core[azure]"' not in pyproject_text
     assert "import dl_azure" in context.get_file(Path("src") / "bootstrap.py")
     assert "preset:executors.azure" in context.get_file(
         Path("configs") / "base_sweep.yaml"
@@ -94,6 +96,10 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
         "azure-config.json"
     )
     assert '"deep-learning-azure"' in context.get_file("pyproject.toml")
+    gitignore_text = context.get_file(".gitignore")
+    assert "outputs/" in gitignore_text
+    assert "azure_logs/" in gitignore_text
+    assert "*.log" in gitignore_text
     dataset_file = context.get_file(Path("src") / "datasets" / "demo.py")
     assert "pad-datasets" not in dataset_file
     assert "dataset.container_name" in dataset_file

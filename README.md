@@ -29,7 +29,7 @@ pip install deep-learning-azure
 Install in a `uv` project:
 
 ```bash
-uv add "deep-learning-core[azure]" deep-learning-azure
+uv add "deep-learning-core[azure]"
 ```
 
 ## Scope
@@ -50,7 +50,7 @@ uv add "deep-learning-core[azure]" deep-learning-azure
 Install it into an experiment repository through the Azure extra:
 
 ```bash
-uv add "deep-learning-core[azure]" deep-learning-azure
+uv add "deep-learning-core[azure]"
 ```
 
 If the repository was scaffolded with `dl-init --with-azure`, the
@@ -160,6 +160,11 @@ Streaming wrappers require `dataset.container_name` and an Azure storage config
 that provides `account_name`, either in `azure-config.json` or inline in the
 dataset config.
 
+`AzureClientService.get_blob_sas_url()` issues a user-delegation SAS through
+`DefaultAzureCredential`; it never silently returns an unsigned URL. The active
+identity therefore needs permission to request a user delegation key and the
+required Blob Data role for the requested operation.
+
 Frame wrappers share a few image-specific settings:
 
 - `height` / `width` for the output tensor shape
@@ -204,7 +209,7 @@ dataset:
   `AzureComputeMultiFrameWrapper`, and `AzureStreamingMultiFrameWrapper`
 - `dl-init --with-azure` scaffold integration
 - a managed `.amlignore` block that preserves user content while excluding
-  common local-only outputs from Azure submissions
+  common local-only outputs and environment files from Azure submissions
 - Azure job output routing to `outputs/artifacts` for automatic artifact
   persistence in Azure ML
 

@@ -1,8 +1,8 @@
 # TLDR: Install and Submit
 
-`dl-azure` extends `dl-core`. The normal path is:
+`deep-learning-azure` extends `deep-learning-core`. The normal path is:
 
-1. install `dl-core[azure]` into the experiment repository
+1. install `deep-learning-core[azure]` into the experiment repository
 2. make sure `dl_azure` is imported so registrations happen
 3. put Azure executor config into the sweep
 4. fill in `azure-config.json`
@@ -12,7 +12,7 @@
 ## Install
 
 ```bash
-uv add "dl-core[azure]"
+uv add "deep-learning-core[azure]"
 ```
 
 For local development against sibling checkouts:

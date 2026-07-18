@@ -1,20 +1,20 @@
 # Guide: 1. Wiring Azure Into an Experiment Repo
 
 The Azure package is not a standalone training framework. It is an adapter
-layer for an existing `dl-core` experiment repository.
+layer for an existing `deep-learning-core` experiment repository.
 
-## Step 1: Start From a `dl-core` Experiment Repo
+## Step 1: Start From a `deep-learning-core` Experiment Repo
 
-Create it from `dl-core`:
+Install the Azure extra and scaffold the repository:
 
 ```bash
-uv add "dl-core[azure]"
+uv add "deep-learning-core[azure]"
 uv run dl-init --name my-exp --root-dir . --with-azure
 ```
 
-Using `--with-azure` is recommended because the scaffold switches the generated
-dependency to `dl-core[azure]`, imports `dl_azure` from the experiment package
-root, and creates `azure-config.json`.
+Using `--with-azure` is recommended because the scaffold adds the direct
+`deep-learning-azure` dependency, imports `dl_azure` from the experiment
+package root, creates `azure-config.json`, and adds Azure output ignore rules.
 
 ## Step 2: Install the Packages
 

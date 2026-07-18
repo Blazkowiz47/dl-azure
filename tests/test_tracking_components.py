@@ -222,6 +222,52 @@ def test_azure_mlflow_tracker_setup_sweep_reuses_parent_job_context() -> None:
     }
 
 
+def test_azure_mlflow_tracker_discovers_uri_with_v2_sdk(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Workspace discovery should use the supported Azure ML v2 client."""
+    azure_config_path = tmp_path / "azure-config.json"
+    azure_config_path.write_text(
+        (
+            '{"subscription_id": "sub-123", '
+            '"resource_group": "rg-demo", '
+            '"workspace_name": "workspace-demo"}'
+        ),
+        encoding="utf-8",
+    )
+    client_arguments: dict[str, object] = {}
+
+    class _FakeMLClient:
+        def __init__(self, **kwargs: object) -> None:
+            client_arguments.update(kwargs)
+            self.workspaces = SimpleNamespace(
+                get=lambda name: SimpleNamespace(
+                    name=name,
+                    mlflow_tracking_uri="azureml://v2-tracking",
+                )
+            )
+
+    credential = object()
+    monkeypatch.setattr(
+        "dl_azure.trackers.azure_mlflow.DefaultAzureCredential",
+        lambda: credential,
+    )
+    monkeypatch.setattr("dl_azure.trackers.azure_mlflow.MLClient", _FakeMLClient)
+
+    tracker = AzureMlflowTracker(
+        {"azure_config_path": str(azure_config_path)}
+    )
+
+    assert tracker._resolve_tracking_uri() == "azureml://v2-tracking"
+    assert client_arguments == {
+        "credential": credential,
+        "subscription_id": "sub-123",
+        "resource_group_name": "rg-demo",
+        "workspace_name": "workspace-demo",
+    }
+
+
 def test_azure_mlflow_tracker_setup_sweep_creates_parent_run_for_local_executor(
     monkeypatch: MonkeyPatch,
 ) -> None:

@@ -34,6 +34,12 @@ Azure storage config can come from:
 The wrapper lists blob paths under the configured prefix and downloads images
 or metadata on demand through the shared Azure client service.
 
+When callers request a shareable blob URL, the client generates a
+user-delegation SAS through `DefaultAzureCredential`. The authenticated identity
+must be allowed to request a user delegation key and must have the appropriate
+Blob Data role. Generation failures raise an error instead of returning an
+unsigned URL that may fail later.
+
 ## Cache Behavior
 
 The blob cache is only used by the streaming wrappers. Compute wrappers read
@@ -99,6 +105,7 @@ The Azure executor:
   `executor.azure_config_path`
 - updates only a managed block in `.amlignore`
 - preserves existing user-defined `.amlignore` content outside that block
+- excludes `.env` files from the Azure submission context
 - is intended for sweep submission rather than the local-only `dl-run` path
 
 ## Recommended Operational Pattern

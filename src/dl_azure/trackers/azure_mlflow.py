@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import mlflow
-from azureml.core import Workspace
+from azure.ai.ml import MLClient
+from azure.identity import DefaultAzureCredential
 
 from dl_core.core import BaseTracker, config_field, register_tracker
 
@@ -61,8 +63,17 @@ class AzureMlflowTracker(BaseTracker):
         if not azure_config_path.exists():
             return None
 
-        workspace = Workspace.from_config(path=str(azure_config_path))
-        return workspace.get_mlflow_tracking_uri()
+        azure_config = json.loads(azure_config_path.read_text(encoding="utf-8"))
+        client = MLClient(
+            credential=DefaultAzureCredential(),
+            subscription_id=azure_config["subscription_id"],
+            resource_group_name=azure_config["resource_group"],
+            workspace_name=azure_config["workspace_name"],
+        )
+        workspace = client.workspaces.get(azure_config["workspace_name"])
+        if workspace is None:
+            return None
+        return workspace.mlflow_tracking_uri
 
     def setup_sweep(
         self,
