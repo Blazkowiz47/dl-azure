@@ -8,6 +8,19 @@ Azure-oriented dataset wrappers on top of `deep-learning-core`.
 Current release: `deep-learning-azure==0.0.18`.
 Requires `deep-learning-core>=0.0.25,<0.1`.
 
+## What's New in 0.0.19?
+
+- blob URLs can now be signed with user-delegation SAS tokens; invalid options
+  and signing failures raise explicit errors instead of returning unsigned URLs
+- blob cache paths remain beneath the configured cache root, and pooled
+  container clients are isolated by authenticated service instance
+- AzCopy commands run without a shell, preserving paths as literal arguments
+  while supplying retry concurrency through the child-process environment
+- Azure MLflow workspace discovery now uses the Azure ML v2 client, removing
+  the legacy `azureml-core` dependency
+- generated repositories ignore Azure output and log directories, and Azure
+  submissions exclude local environment files
+
 Install it directly or through the `deep-learning-core[azure]` extra. The
 package is kept separate so Azure-specific dependencies and scaffold wiring do
 not leak into plain `deep-learning-core` installations.
