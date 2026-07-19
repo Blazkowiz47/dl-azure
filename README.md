@@ -5,8 +5,8 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.18`.
-Requires `deep-learning-core>=0.0.25,<0.1`.
+Current release: `deep-learning-azure==0.0.19`.
+Requires `deep-learning-core>=0.0.26,<0.1`.
 
 ## What's New in 0.0.19?
 

@@ -788,7 +788,7 @@ wheels = [
 
 [[package]]
 name = "deep-learning-azure"
-version = "0.0.18"
+version = "0.0.19"
 source = { editable = "." }
 dependencies = [
     { name = "azure-ai-ml" },
@@ -812,7 +812,7 @@ requires-dist = [
     { name = "azure-identity", specifier = "==1.25.1" },
     { name = "azure-storage-blob", specifier = "==12.19.0" },
     { name = "azureml-mlflow", specifier = "==1.60.0.post1" },
-    { name = "deep-learning-core", specifier = ">=0.0.25,<0.1" },
+    { name = "deep-learning-core", specifier = ">=0.0.26,<0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
@@ -822,10 +822,11 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.0.25"
+version = "0.0.26"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "albumentations" },
+    { name = "gymnasium" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opencv-python-headless" },
@@ -837,9 +838,9 @@ dependencies = [
     { name = "torchvision" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3e/a1/c53ef4a58174ec7f22beab33054628b4152603d7c257fb7997e72d2fd54b/deep_learning_core-0.0.25.tar.gz", hash = "sha256:d5b2d37bd58df8547b413687a4f03936c2aa200bfc4e12ad9102e0a6d0d3cbed", size = 472391, upload-time = "2026-06-28T15:42:10.884Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/29/33/853d7bf9304fd2c6671776e2757f08f23c751345670d8efedebfcf2324c1/deep_learning_core-0.0.26.tar.gz", hash = "sha256:b38623cd8e174e5614716fb8b1a569614a94835dcc12d374fa38fb03580a5827", size = 536893, upload-time = "2026-07-19T13:14:56.499Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/29/fab317810425809c82416f52025c1c618a4b54beced418d4604dc4f32d1a/deep_learning_core-0.0.25-py3-none-any.whl", hash = "sha256:3f9fc2711fc57110103041f4ec7a330acedfa071c2107711eaa752f82624828b", size = 243193, upload-time = "2026-06-28T15:42:09.281Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/b1/9797c65898a3d25301b4252a4a9f86f4e3d365a59621b361b62271419711/deep_learning_core-0.0.26-py3-none-any.whl", hash = "sha256:8f4ce93b69f90fd079b2dbcabcc5f6e6d11578f86ba0e9731f91bf9a3885d583", size = 281413, upload-time = "2026-07-19T13:14:55.162Z" },
 ]
 
 [[package]]
@@ -861,6 +862,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8a/0e/97c33bf5009bdbac74fd2beace167cab3f978feb69cc36f1ef79360d6c4e/exceptiongroup-1.3.1-py3-none-any.whl", hash = "sha256:a7a39a3bd276781e98394987d3a5701d0c4edffb633bb7a5144577f82c773598", size = 16740, upload-time = "2025-11-21T23:01:53.443Z" },
+]
+
+[[package]]
+name = "farama-notifications"
+version = "0.0.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/91/14397890dde30adc4bee6462158933806207bc5dd10d7b4d09d5c33845cf/farama_notifications-0.0.6.tar.gz", hash = "sha256:b19acac4bb41d76e59e03394b5dd165f4761c86fa327f56307a35cbee3b60158", size = 2517, upload-time = "2026-04-24T08:43:57.603Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/f0/21f81892e4ed10f4ec3ef2e7cf8635fb76e7c0907c55d0da66be50094760/farama_notifications-0.0.6-py3-none-any.whl", hash = "sha256:f84839188efa1ce5bb361c2a84881b2dc2c0d0d7fb661ff00421820170930935", size = 2897, upload-time = "2026-04-24T08:43:56.785Z" },
 ]
 
 [[package]]
@@ -932,6 +942,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ea/80/6a696a07d3d3b0a92488933532f03dbefa4a24ab80fb231395b9a2a1be77/google_auth-2.49.1.tar.gz", hash = "sha256:16d40da1c3c5a0533f57d268fe72e0ebb0ae1cc3b567024122651c045d879b64", size = 333825, upload-time = "2026-03-12T19:30:58.135Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/eb/c6c2478d8a8d633460be40e2a8a6f8f429171997a35a96f81d3b680dec83/google_auth-2.49.1-py3-none-any.whl", hash = "sha256:195ebe3dca18eddd1b3db5edc5189b76c13e96f29e73043b923ebcf3f1a860f7", size = 240737, upload-time = "2026-03-12T19:30:53.159Z" },
+]
+
+[[package]]
+name = "gymnasium"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cloudpickle" },
+    { name = "farama-notifications" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4d/ff/14b6880d703dfaca204490979d3254ccd280c99550798993319902873658/gymnasium-1.3.0.tar.gz", hash = "sha256:6939e86e835d6b71b6ba6bfd360487420876deafc79bfb7bacba83a7c446bcf3", size = 830646, upload-time = "2026-04-22T13:47:14.155Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/73/fda6a25f3beeb5e49d74330b44092b9e5a547395ccd478d1103ddcbff1fc/gymnasium-1.3.0-py3-none-any.whl", hash = "sha256:6b8c159a8540dcbcb221722d7efda24d78ebbcbc3bd2ea1c2611aa2a34471fc2", size = 953904, upload-time = "2026-04-22T13:47:12.13Z" },
 ]
 
 [[package]]
