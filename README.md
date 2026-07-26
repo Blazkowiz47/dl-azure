@@ -21,6 +21,8 @@ Requires `deep-learning-core>=0.0.26,<0.1`.
 - generated repositories ignore Azure output and log directories, and Azure
   submissions exclude local environment files
 
+Previous versions are recorded in the [release history](RELEASES.md).
+
 Install it directly or through the `deep-learning-core[azure]` extra. The
 package is kept separate so Azure-specific dependencies and scaffold wiring do
 not leak into plain `deep-learning-core` installations.
