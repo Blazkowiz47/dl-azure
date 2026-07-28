@@ -788,7 +788,7 @@ wheels = [
 
 [[package]]
 name = "deep-learning-azure"
-version = "0.0.19"
+version = "0.0.20"
 source = { editable = "." }
 dependencies = [
     { name = "azure-ai-ml" },
@@ -812,7 +812,7 @@ requires-dist = [
     { name = "azure-identity", specifier = "==1.25.1" },
     { name = "azure-storage-blob", specifier = "==12.19.0" },
     { name = "azureml-mlflow", specifier = "==1.60.0.post1" },
-    { name = "deep-learning-core", specifier = ">=0.0.26,<0.1" },
+    { name = "deep-learning-core", specifier = ">=0.0.35,<0.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
@@ -822,7 +822,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.0.26"
+version = "0.0.35"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "albumentations" },
@@ -838,9 +838,9 @@ dependencies = [
     { name = "torchvision" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/29/33/853d7bf9304fd2c6671776e2757f08f23c751345670d8efedebfcf2324c1/deep_learning_core-0.0.26.tar.gz", hash = "sha256:b38623cd8e174e5614716fb8b1a569614a94835dcc12d374fa38fb03580a5827", size = 536893, upload-time = "2026-07-19T13:14:56.499Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/e5/d777bafdb075754128189fcdaf3e4b2f1eb46d9cfdd3ec29bac189e0631e/deep_learning_core-0.0.35.tar.gz", hash = "sha256:7031c0e097310fa8be8a45a3117dc22b022bd68141a6392594f871c530ffd94d", size = 606577, upload-time = "2026-07-28T10:14:43.36Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a4/b1/9797c65898a3d25301b4252a4a9f86f4e3d365a59621b361b62271419711/deep_learning_core-0.0.26-py3-none-any.whl", hash = "sha256:8f4ce93b69f90fd079b2dbcabcc5f6e6d11578f86ba0e9731f91bf9a3885d583", size = 281413, upload-time = "2026-07-19T13:14:55.162Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/bf/664b59fa0aada1b0177331043fa06e466079e5d8da3fac8ce43fed59c87a/deep_learning_core-0.0.35-py3-none-any.whl", hash = "sha256:f9d4b8ac5e83f87aeb32e3a14530288c40d9a451a4812487917e16a96d924541", size = 323936, upload-time = "2026-07-28T10:14:41.707Z" },
 ]
 
 [[package]]
