@@ -148,8 +148,8 @@ class AzureComputeMixin(ABC):
         return False
 
 
-class AzureStreamingMixin(ABC):
-    """Shared helpers for Azure blob-backed datasets."""
+class AzureBlobMixin(ABC):
+    """Shared authentication and discovery for Azure blob-backed datasets."""
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
@@ -163,17 +163,6 @@ class AzureStreamingMixin(ABC):
                 "Azure streaming datasets require 'container_name' in dataset config."
             )
         self.azure_service = AzureClientService(self.azure_config)
-
-        cache_config = self.config.get("cache", {})
-        cache_dir = Path(
-            cache_config.get("cache_dir", "~/.cache/dl-azure")
-        ).expanduser()
-        self.cache: AzureBlobCache | None = None
-        if cache_config.get("enabled", True):
-            self.cache = AzureBlobCache(str(cache_dir))
-        self.cache_splits = set(
-            cache_config.get("cache_splits", ["train", "validation", "test"])
-        )
 
     def _load_azure_config(self) -> dict[str, Any]:
         """Load Azure storage configuration from file and dataset config."""
@@ -221,6 +210,23 @@ class AzureStreamingMixin(ABC):
             results.append(str(blob_name))
         results.sort()
         return results
+
+
+class AzureStreamingMixin(AzureBlobMixin):
+    """Image and JSON loading helpers for Azure blob-backed datasets."""
+
+    def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
+        super().__init__(config, **kwargs)
+        cache_config = self.config.get("cache", {})
+        cache_dir = Path(
+            cache_config.get("cache_dir", "~/.cache/dl-azure")
+        ).expanduser()
+        self.cache: AzureBlobCache | None = None
+        if cache_config.get("enabled", True):
+            self.cache = AzureBlobCache(str(cache_dir))
+        self.cache_splits = set(
+            cache_config.get("cache_splits", ["train", "validation", "test"])
+        )
 
     def load_json_data(
         self, relative_path: str, use_cache: bool = False

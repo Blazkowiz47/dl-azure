@@ -8,6 +8,10 @@ from dl_azure.datasets.base import (
     AzureStreamingMultiFrameWrapper,
     AzureStreamingWrapper,
 )
+from dl_azure.datasets.tar_shard import (
+    AzureComputeTarShardWrapper,
+    AzureStreamingTarShardWrapper,
+)
 
 __all__ = [
     "AzureComputeWrapper",
@@ -16,4 +20,6 @@ __all__ = [
     "AzureStreamingFrameWrapper",
     "AzureComputeMultiFrameWrapper",
     "AzureStreamingMultiFrameWrapper",
+    "AzureComputeTarShardWrapper",
+    "AzureStreamingTarShardWrapper",
 ]

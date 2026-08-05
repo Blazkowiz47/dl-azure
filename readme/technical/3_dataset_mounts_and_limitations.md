@@ -65,6 +65,23 @@ statistics and cleanup include files in the full hierarchical layout. Azure
 container-client pooling is scoped to one authenticated client service so
 credentials are never mixed through a process-wide cache.
 
+## Indexed Tar Shards
+
+`AzureComputeTarShardWrapper` resolves relative `.tar` paths under the normal
+compute root. `AzureStreamingTarShardWrapper` lists or accepts blob paths and
+materializes each selected tar plus its optional `.idx.json` sidecar beneath
+`dataset.cache.cache_dir/shards`.
+
+Streaming shard downloads are chunked into a temporary file and atomically
+renamed. A per-blob lock prevents DataLoader ranks or processes sharing one
+cache directory from publishing partial files. Cache metadata records the
+remote ETag, content length, and version ID when present.
+
+Only uncompressed `.tar` shards support indexed random access. Each DataLoader
+worker owns its tar handles; ranks can share the same cached file on disk but do
+not share Python file objects. Exact rank-local group balance is configured by
+the `dl-core` tar batch sampler rather than by Azure blob discovery.
+
 ## Frame Dataset Notes
 
 The generic frame wrappers:

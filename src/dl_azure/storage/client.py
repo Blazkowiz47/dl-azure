@@ -1,6 +1,8 @@
 """Azure client service for blob storage operations using DefaultAzureCredential."""
 
 import logging
+import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -289,9 +291,20 @@ class AzureClientService:
             # Create parent directory if needed
             local_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(local_path, "wb") as f:
-                download_stream = blob_client.download_blob()
-                f.write(download_stream.readall())
+            file_descriptor, temporary_name = tempfile.mkstemp(
+                dir=local_path.parent,
+                prefix=f".{local_path.name}.",
+                suffix=".part",
+            )
+            try:
+                with os.fdopen(file_descriptor, "wb") as handle:
+                    download_stream = blob_client.download_blob()
+                    for chunk in download_stream.chunks():
+                        handle.write(chunk)
+                os.replace(temporary_name, local_path)
+            except Exception:
+                Path(temporary_name).unlink(missing_ok=True)
+                raise
 
             logger.debug(f"Downloaded {blob_path} to {local_path}")
             return True

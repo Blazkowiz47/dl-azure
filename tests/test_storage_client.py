@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -142,3 +143,26 @@ def test_container_client_cache_is_scoped_to_one_credential(
     assert second_service.get_container_client("images") is second_container
     assert first_calls == ["images"]
     assert second_calls == ["images"]
+
+
+def test_download_blob_streams_chunks_to_atomic_destination(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Raw blob downloads should not require one in-memory readall payload."""
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        client,
+        "get_blob_client_pooled",
+        lambda container_name, blob_path: SimpleNamespace(
+            download_blob=lambda: SimpleNamespace(
+                chunks=lambda: iter([b"first-", b"second"])
+            )
+        ),
+    )
+    destination = tmp_path / "nested" / "sample.tar"
+
+    assert client.download_blob("datasets", "train/sample.tar", destination)
+    assert destination.read_bytes() == b"first-second"
+    assert not list(destination.parent.glob("*.part"))

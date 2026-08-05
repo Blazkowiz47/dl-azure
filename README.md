@@ -141,6 +141,7 @@ uv run dl-core add dataset AzureFrames --base azure_compute_frame
 uv run dl-core add dataset AzureSeq --base azure_compute_multiframe
 uv run dl-core add dataset AzureStream --base azure_streaming
 uv run dl-core add dataset AzureStreamSeq --base azure_streaming_multiframe
+uv run dl-core add dataset AzureTar --base azure_streaming_tar
 ```
 
 ## Dataset Wrapper Notes
@@ -151,6 +152,7 @@ job or available locally through a compatible directory layout:
 - `AzureComputeWrapper`
 - `AzureComputeFrameWrapper`
 - `AzureComputeMultiFrameWrapper`
+- `AzureComputeTarShardWrapper`
 
 Compute wrappers resolve the dataset root in this order:
 
@@ -164,6 +166,7 @@ instead of relying on an Azure ML input mount:
 - `AzureStreamingWrapper`
 - `AzureStreamingFrameWrapper`
 - `AzureStreamingMultiFrameWrapper`
+- `AzureStreamingTarShardWrapper`
 
 Streaming wrappers require `dataset.container_name` and an Azure storage config
 that provides `account_name`, either in `azure-config.json` or inline in the
@@ -184,6 +187,34 @@ Frame wrappers share a few image-specific settings:
 If you enable `face_detected_and_resized_cache`, processed frame images are
 stored in the wrapper cache when a cache backend is available. That is most
 useful for the streaming frame wrappers, where blob reads can be cached locally.
+
+Tar shard wrappers use the indexed, uncompressed `.tar` implementation from
+`dl-core`. Compute wrappers read shards from the resolved mount. Streaming
+wrappers first cache the tar and optional `<shard>.idx.json` blob locally,
+validating cache entries with Azure ETag and content length. Project transforms
+receive grouped member bytes through `file_dict["members"]`.
+
+```yaml
+dataset:
+  name: my_azure_tar_dataset
+  container_name: datasets
+  auto_split: false
+  shards:
+    train:
+      - path: train/attack-000.tar
+        group: attack
+      - path: train/real-000.tar
+        group: real
+  required_extensions: [png, json]
+  persistent_workers: true
+  cache:
+    cache_dir: /mnt/localssd/dl-azure
+    lock_timeout_seconds: 300
+  batch_sampler:
+    type: round_robin_tar
+    group_pattern: [attack, real]
+    distributed_drop_last: true
+```
 
 Multiframe wrappers add one `multiframe` block:
 
@@ -215,7 +246,8 @@ dataset:
 - generic Azure dataset foundations:
   `AzureComputeWrapper`, `AzureStreamingWrapper`,
   `AzureComputeFrameWrapper`, `AzureStreamingFrameWrapper`,
-  `AzureComputeMultiFrameWrapper`, and `AzureStreamingMultiFrameWrapper`
+  `AzureComputeMultiFrameWrapper`, `AzureStreamingMultiFrameWrapper`,
+  `AzureComputeTarShardWrapper`, and `AzureStreamingTarShardWrapper`
 - `dl-init --with-azure` scaffold integration
 - a managed `.amlignore` block that preserves user content while excluding
   common local-only outputs and environment files from Azure submissions
