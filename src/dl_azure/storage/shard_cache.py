@@ -34,17 +34,6 @@ class AzureShardCache:
         return self.cache_dir / quote(container_name, safe="-_.()") / Path(*parts)
 
     @staticmethod
-    def _identity(blob_properties: Any) -> dict[str, Any]:
-        size = getattr(blob_properties, "size", None)
-        if size is None:
-            size = getattr(blob_properties, "content_length", None)
-        return {
-            "etag": str(getattr(blob_properties, "etag", "")),
-            "size": int(size) if size is not None else None,
-            "version_id": getattr(blob_properties, "version_id", None),
-        }
-
-    @staticmethod
     def _matches(path: Path, metadata_path: Path, identity: dict[str, Any]) -> bool:
         if not path.is_file() or not metadata_path.is_file():
             return False
@@ -69,7 +58,15 @@ class AzureShardCache:
         lock_path = destination.with_name(f"{destination.name}.lock")
         destination.parent.mkdir(parents=True, exist_ok=True)
         blob_client = service.get_blob_client_pooled(container_name, blob_path)
-        identity = self._identity(blob_client.get_blob_properties())
+        blob_properties = blob_client.get_blob_properties()
+        size = getattr(blob_properties, "size", None)
+        if size is None:
+            size = getattr(blob_properties, "content_length", None)
+        identity = {
+            "etag": str(getattr(blob_properties, "etag", "")),
+            "size": int(size) if size is not None else None,
+            "version_id": getattr(blob_properties, "version_id", None),
+        }
         if self._matches(destination, metadata_path, identity):
             return destination
 
