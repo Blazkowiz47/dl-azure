@@ -5,15 +5,18 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.20`.
-Requires `deep-learning-core>=0.0.35,<0.2`.
+Current release: `deep-learning-azure==0.0.21`.
+Requires `deep-learning-core>=0.1.4,<0.2`.
 
-## What's New in 0.0.20?
+## What's New in 0.0.21?
 
-- the supported core range now includes the architecture-free
-  `deep-learning-core==0.1.0` trainer and registry boundary
-- Azure execution, storage, datasets, callbacks, and scaffold behavior are
-  unchanged
+- mounted and streaming tar-shard wrappers extend the indexed grouped-sample
+  dataset contract from `deep-learning-core`
+- streaming shards and sidecar indexes use chunked atomic caching with
+  process-safe locks and Azure blob identity validation
+- shared Azure authentication and blob discovery remain separate from the
+  vendor-neutral tar indexing, reading, and sampling implementation
+- the core compatibility floor is now `deep-learning-core>=0.1.4,<0.2`
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

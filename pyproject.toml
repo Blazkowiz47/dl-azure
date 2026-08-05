@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deep-learning-azure"
-version = "0.0.20"
+version = "0.0.21"
 description = "Generic Azure integration layer for dl-core."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,7 +24,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "deep-learning-core>=0.0.35,<0.2",
+    "deep-learning-core>=0.1.4,<0.2",
     "azure-ai-ml==1.31.0",
     "azure-identity==1.25.1",
     "azure-storage-blob==12.19.0",
