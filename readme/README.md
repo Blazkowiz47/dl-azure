@@ -3,10 +3,10 @@
 This documentation covers the Azure adapter layer that sits on top of
 `dl-core`.
 
-Current public release: `deep-learning-azure==0.0.21`, requiring
-`deep-learning-core>=0.1.4,<0.2`.
+Current public release: `deep-learning-azure==0.0.22`, requiring
+`deep-learning-core>=0.1.5,<0.2`.
 
-## What's New in Development?
+## What's New in 0.0.22?
 
 - Azure tar wrappers provide mounted paths or authenticated blob URLs to the
   optional WebDataset integration in `deep-learning-core`
@@ -14,14 +14,6 @@ Current public release: `deep-learning-azure==0.0.21`, requiring
   mount resolution or SAS authentication
 - WebDataset handles grouped samples, buffered shuffling, on-demand caching,
   and distributed rank/worker shard splitting
-
-## What's New in 0.0.21?
-
-- mounted and streaming tar-shard wrappers provide Azure-backed access to the
-  indexed grouped-sample contract in `deep-learning-core`
-- streaming tar and index caches use atomic chunked downloads, process-safe
-  locking, and Azure blob identity checks
-- Azure storage concerns remain isolated from core tar reading and sampling
 
 - [Release History](../RELEASES.md)
 

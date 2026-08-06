@@ -5,10 +5,10 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.21`.
-Requires `deep-learning-core>=0.1.4,<0.2`.
+Current release: `deep-learning-azure==0.0.22`.
+Requires `deep-learning-core>=0.1.5,<0.2`.
 
-## What's New in Development?
+## What's New in 0.0.22?
 
 - Azure tar wrappers now provide mounted paths or authenticated blob URLs to
   the optional WebDataset integration in `deep-learning-core`
@@ -18,16 +18,6 @@ Requires `deep-learning-core>=0.1.4,<0.2`.
   sidecar indexes and the custom Azure tar cache are no longer required
 - Azure streaming tar support can use WebDataset's on-demand cache when
   `dataset.cache.cache_dir` is configured
-
-## What's New in 0.0.21?
-
-- mounted and streaming tar-shard wrappers extend the indexed grouped-sample
-  dataset contract from `deep-learning-core`
-- streaming shards and sidecar indexes use chunked atomic caching with
-  process-safe locks and Azure blob identity validation
-- shared Azure authentication and blob discovery remain separate from the
-  vendor-neutral tar indexing, reading, and sampling implementation
-- the core compatibility floor is now `deep-learning-core>=0.1.4,<0.2`
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

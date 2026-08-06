@@ -2,7 +2,7 @@
 
 from . import callbacks, datasets, executors, metrics_sources, storage, trackers
 
-__version__ = "0.0.21"
+__version__ = "0.0.22"
 
 __all__ = [
     "__version__",

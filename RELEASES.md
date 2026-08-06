@@ -3,6 +3,16 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## 0.0.21
+
+- mounted and streaming tar-shard wrappers extend the indexed grouped-sample
+  dataset contract from `deep-learning-core`
+- streaming shards and sidecar indexes use chunked atomic caching with
+  process-safe locks and Azure blob identity validation
+- shared Azure authentication and blob discovery remain separate from the
+  vendor-neutral tar indexing, reading, and sampling implementation
+- the core compatibility floor moved to `deep-learning-core>=0.1.4,<0.2`
+
 ## 0.0.20
 
 - the supported core range includes the architecture-free

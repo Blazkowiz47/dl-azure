@@ -797,7 +797,7 @@ wheels = [
 
 [[package]]
 name = "deep-learning-azure"
-version = "0.0.21"
+version = "0.0.22"
 source = { editable = "." }
 dependencies = [
     { name = "azure-ai-ml" },
@@ -825,7 +825,7 @@ requires-dist = [
     { name = "azure-identity", specifier = "==1.25.1" },
     { name = "azure-storage-blob", specifier = "==12.19.0" },
     { name = "azureml-mlflow", specifier = "==1.60.0.post1" },
-    { name = "deep-learning-core", specifier = ">=0.1.4,<0.2" },
+    { name = "deep-learning-core", specifier = ">=0.1.5,<0.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
@@ -837,7 +837,7 @@ provides-extras = ["webdataset", "dev"]
 
 [[package]]
 name = "deep-learning-core"
-version = "0.1.4"
+version = "0.1.5"
 source = { registry = "../dl-core/dist" }
 dependencies = [
     { name = "albumentations" },
@@ -852,9 +852,9 @@ dependencies = [
     { name = "torch" },
     { name = "tqdm" },
 ]
-sdist = { path = "deep_learning_core-0.1.4.tar.gz" }
+sdist = { path = "deep_learning_core-0.1.5.tar.gz" }
 wheels = [
-    { path = "deep_learning_core-0.1.4-py3-none-any.whl" },
+    { path = "deep_learning_core-0.1.5-py3-none-any.whl" },
 ]
 
 [[package]]
