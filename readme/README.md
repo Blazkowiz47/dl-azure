@@ -10,6 +10,8 @@ Current public release: `deep-learning-azure==0.0.21`, requiring
 
 - Azure tar wrappers provide mounted paths or authenticated blob URLs to the
   optional WebDataset integration in `deep-learning-core`
+- project wrappers can dynamically build weighted shard sources before Azure
+  mount resolution or SAS authentication
 - WebDataset handles grouped samples, buffered shuffling, on-demand caching,
   and distributed rank/worker shard splitting
 

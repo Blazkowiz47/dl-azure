@@ -81,6 +81,12 @@ WebDataset supports uncompressed and compressed tar streams. Its shuffle is
 buffered rather than a perfect global permutation, and resampled training may
 repeat samples. Keep validation and test finite and deterministic.
 
+Project wrappers may override `build_shard_sources(split)` to return dynamically
+discovered sources with `name`, `weight`, and `shards`. Azure compute resolves
+relative mounted paths after this hook; Azure streaming converts returned blob
+paths to SAS URLs after the hook. This keeps project discovery and weighting
+separate from backend access.
+
 ## Frame Dataset Notes
 
 The generic frame wrappers:

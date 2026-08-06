@@ -40,8 +40,8 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
                 webdataset_config.setdefault("cache_size", cache_config["cache_size"])
             self.webdataset_config = webdataset_config
 
-    def get_shards(self, split: str) -> list[dict[str, Any]]:
-        """Resolve configured or discovered Azure blobs into authenticated URLs."""
+    def build_shard_sources(self, split: str) -> list[dict[str, Any]]:
+        """Build weighted Azure blob sources; subclasses may override."""
 
         remote_shards = self.get_configured_shards(split)
         if not remote_shards:
@@ -63,26 +63,38 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
                 for blob_path in self.scan_paths(prefix)
                 if blob_path.lower().endswith((".tar", ".tar.gz", ".tgz"))
             ]
+        return [{"name": split, "weight": 1.0, "shards": remote_shards}]
 
-        authenticated_shards: list[dict[str, Any]] = []
-        for shard in remote_shards:
-            blob_path = str(shard["path"])
-            if not blob_path.lower().endswith((".tar", ".tar.gz", ".tgz")):
-                raise ValueError(
-                    f"Azure WebDataset shards must be tar archives: {blob_path}"
+    def get_shard_sources(self, split: str) -> list[dict[str, Any]]:
+        """Convert logical Azure blob sources into authenticated URLs."""
+
+        authenticated_sources = []
+        for source in self.build_shard_sources(split):
+            authenticated_shards = []
+            for configured_shard in source.get("shards", []):
+                shard = (
+                    dict(configured_shard)
+                    if isinstance(configured_shard, dict)
+                    else {"path": str(configured_shard)}
                 )
-            authenticated_shards.append(
-                {
-                    **shard,
-                    "path": self.azure_service.get_blob_sas_url(
-                        self.container_name,
-                        blob_path,
-                        expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
-                    ),
-                    "source_path": blob_path,
-                }
-            )
-        return authenticated_shards
+                blob_path = str(shard["path"])
+                if not blob_path.lower().endswith((".tar", ".tar.gz", ".tgz")):
+                    raise ValueError(
+                        f"Azure WebDataset shards must be tar archives: {blob_path}"
+                    )
+                authenticated_shards.append(
+                    {
+                        **shard,
+                        "path": self.azure_service.get_blob_sas_url(
+                            self.container_name,
+                            blob_path,
+                            expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
+                        ),
+                        "source_path": blob_path,
+                    }
+                )
+            authenticated_sources.append({**source, "shards": authenticated_shards})
+        return authenticated_sources
 
 
 __all__ = [

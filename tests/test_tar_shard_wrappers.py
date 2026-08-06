@@ -34,6 +34,20 @@ class _StreamingTarWrapper(AzureStreamingTarShardWrapper):
         return {**file_dict, "split": split}
 
 
+class _DynamicStreamingTarWrapper(_StreamingTarWrapper):
+    def build_shard_sources(self, split: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": "attack",
+                "weight": 0.75,
+                "shards": [
+                    {"path": path, "group": "attack"}
+                    for path in self.config["dynamic_shards"].get(split, [])
+                ],
+            }
+        ]
+
+
 class _FakeAzureService:
     def __init__(self, paths: dict[str, Path]) -> None:
         self.paths = paths
@@ -90,12 +104,12 @@ def test_streaming_tar_wrapper_provides_authenticated_shard_urls(
         "dl_azure.datasets.base.AzureClientService",
         lambda config: service,
     )
-    wrapper = _StreamingTarWrapper(
+    wrapper = _DynamicStreamingTarWrapper(
         {
             "account_name": "demo",
             "container_name": "datasets",
             "azure_config_path": str(tmp_path / "missing-azure-config.json"),
-            "shards": {"train": [{"path": "train/demo.tar", "group": "attack"}]},
+            "dynamic_shards": {"train": ["train/demo.tar"]},
             "required_extensions": ["png", "json"],
             "cache": {"cache_dir": str(tmp_path / "cache")},
             "batch_size": 1,
@@ -110,5 +124,7 @@ def test_streaming_tar_wrapper_provides_authenticated_shard_urls(
     batch = next(iter(loader))
     assert batch["source_path"] == ["train/demo.tar"]
     assert batch["group"] == ["attack"]
+    assert batch["source_name"] == ["attack"]
+    assert batch["source_weight"].tolist() == [0.75]
     assert service.sas_requests == [("datasets", "train/demo.tar", 168)]
     assert wrapper.webdataset_config["cache_dir"] == str(tmp_path / "cache")

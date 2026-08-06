@@ -12,6 +12,8 @@ Requires `deep-learning-core>=0.1.4,<0.2`.
 
 - Azure tar wrappers now provide mounted paths or authenticated blob URLs to
   the optional WebDataset integration in `deep-learning-core`
+- project Azure wrappers can override `build_shard_sources(split)` to construct
+  blob paths and source weights dynamically before backend resolution
 - WebDataset splits shards between ranks and workers before opening the stream;
   sidecar indexes and the custom Azure tar cache are no longer required
 - Azure streaming tar support can use WebDataset's on-demand cache when
@@ -205,6 +207,11 @@ Compute wrappers provide mounted shard paths. Streaming wrappers provide
 user-delegation SAS URLs, so WebDataset can divide shards between ranks and
 workers before opening them. Project transforms receive grouped member bytes
 through `file_dict["members"]`.
+
+For project-specific discovery and weighting, override
+`build_shard_sources(split)`. Return logical mounted paths in compute wrappers
+or logical container-relative blob paths in streaming wrappers; the parent
+wrapper still performs mount resolution or SAS authentication.
 
 ```yaml
 dataset:
