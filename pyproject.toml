@@ -52,5 +52,13 @@ Issues = "https://github.com/Blazkowiz47/dl-azure/issues"
 [project.entry-points."dl_core.init_extensions"]
 azure = "dl_azure.init_extension:AzureInitExtension"
 
+[tool.uv.sources]
+deep-learning-core = { index = "testpypi" }
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple"
+explicit = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/dl_azure"]

@@ -825,7 +825,7 @@ requires-dist = [
     { name = "azure-identity", specifier = "==1.25.1" },
     { name = "azure-storage-blob", specifier = "==12.19.0" },
     { name = "azureml-mlflow", specifier = "==1.60.0.post1" },
-    { name = "deep-learning-core", specifier = ">=0.1.5,<0.2" },
+    { name = "deep-learning-core", specifier = ">=0.1.5,<0.2", index = "https://test.pypi.org/simple" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
@@ -838,7 +838,7 @@ provides-extras = ["webdataset", "dev"]
 [[package]]
 name = "deep-learning-core"
 version = "0.1.5"
-source = { registry = "../dl-core/dist" }
+source = { registry = "https://test.pypi.org/simple" }
 dependencies = [
     { name = "albumentations" },
     { name = "gymnasium" },
@@ -852,9 +852,9 @@ dependencies = [
     { name = "torch" },
     { name = "tqdm" },
 ]
-sdist = { path = "deep_learning_core-0.1.5.tar.gz" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/04/77/b60e2aa5806e25e1ea670ee45c26b9f41310224ee38b43aa97ae4c404917/deep_learning_core-0.1.5.tar.gz", hash = "sha256:3527472cb1177c9bd8043381217a76cc3e79f537a3d6bee0330190b4e21265b2", size = 609149, upload-time = "2026-08-06T11:53:25.135Z" }
 wheels = [
-    { path = "deep_learning_core-0.1.5-py3-none-any.whl" },
+    { url = "https://test-files.pythonhosted.org/packages/27/22/809903829598ebe5a82a662fd8f5f684699ac685be014ff0b402f8a9c41a/deep_learning_core-0.1.5-py3-none-any.whl", hash = "sha256:f467c7ae9ddd36fd7ab97b4a046b51eae3a983a3aee47b32ff850009f5a01db2", size = 327286, upload-time = "2026-08-06T11:53:23.486Z" },
 ]
 
 [[package]]
