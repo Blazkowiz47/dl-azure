@@ -65,22 +65,21 @@ statistics and cleanup include files in the full hierarchical layout. Azure
 container-client pooling is scoped to one authenticated client service so
 credentials are never mixed through a process-wide cache.
 
-## Indexed Tar Shards
+## WebDataset Tar Shards
 
 `AzureComputeTarShardWrapper` resolves relative `.tar` paths under the normal
 compute root. `AzureStreamingTarShardWrapper` lists or accepts blob paths and
-materializes each selected tar plus its optional `.idx.json` sidecar beneath
-`dataset.cache.cache_dir/shards`.
+converts them to read-only user-delegation SAS URLs. WebDataset then splits the
+shard stream by distributed rank and DataLoader worker before opening archives.
 
-Streaming shard downloads are chunked into a temporary file and atomically
-renamed. A per-blob lock prevents DataLoader ranks or processes sharing one
-cache directory from publishing partial files. Cache metadata records the
-remote ETag, content length, and version ID when present.
+Set `dataset.cache.cache_dir` to enable WebDataset's on-demand local shard
+cache, and optionally set `cache_size` in bytes. Without a cache directory,
+archives are streamed from the authenticated URLs. SAS expiry defaults to seven
+days and can be changed with `dataset.sas_expiry_hours`.
 
-Only uncompressed `.tar` shards support indexed random access. Each DataLoader
-worker owns its tar handles; ranks can share the same cached file on disk but do
-not share Python file objects. Exact rank-local group balance is configured by
-the `dl-core` tar batch sampler rather than by Azure blob discovery.
+WebDataset supports uncompressed and compressed tar streams. Its shuffle is
+buffered rather than a perfect global permutation, and resampled training may
+repeat samples. Keep validation and test finite and deterministic.
 
 ## Frame Dataset Notes
 

@@ -6,6 +6,13 @@ This documentation covers the Azure adapter layer that sits on top of
 Current public release: `deep-learning-azure==0.0.21`, requiring
 `deep-learning-core>=0.1.4,<0.2`.
 
+## What's New in Development?
+
+- Azure tar wrappers provide mounted paths or authenticated blob URLs to the
+  optional WebDataset integration in `deep-learning-core`
+- WebDataset handles grouped samples, buffered shuffling, on-demand caching,
+  and distributed rank/worker shard splitting
+
 ## What's New in 0.0.21?
 
 - mounted and streaming tar-shard wrappers provide Azure-backed access to the

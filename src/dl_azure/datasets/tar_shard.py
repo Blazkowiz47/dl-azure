@@ -1,4 +1,4 @@
-"""Azure-mounted and blob-cached wrappers for indexed tar shards."""
+"""Azure shard path providers for WebDataset-backed tar datasets."""
 
 from __future__ import annotations
 
@@ -8,11 +8,10 @@ from typing import Any
 from dl_core.datasets import TarShardWrapper
 
 from dl_azure.datasets.base import AzureBlobMixin, AzureComputeMixin
-from dl_azure.storage import AzureShardCache
 
 
 class AzureComputeTarShardWrapper(AzureComputeMixin, TarShardWrapper):
-    """Read indexed tar shards from an Azure ML mount or compatible local root."""
+    """Provide mounted Azure ML tar paths to WebDataset."""
 
     @property
     def shard_root(self) -> Path:
@@ -22,24 +21,27 @@ class AzureComputeTarShardWrapper(AzureComputeMixin, TarShardWrapper):
 
 
 class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
-    """Cache Azure tar shards locally before indexed sample reads."""
+    """Provide authenticated Azure blob URLs to WebDataset."""
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
         cache_config = self.config.get("cache", {})
-        configured_cache_dir = Path(
-            cache_config.get("cache_dir", "~/.cache/dl-azure")
-        ).expanduser()
-        shard_cache_dir = Path(
-            cache_config.get("shard_cache_dir", configured_cache_dir / "shards")
-        ).expanduser()
-        self.shard_cache = AzureShardCache(
-            shard_cache_dir,
-            lock_timeout_seconds=float(cache_config.get("lock_timeout_seconds", 300)),
-        )
+        if cache_config and cache_config.get("enabled", True):
+            webdataset_config = dict(self.webdataset_config)
+            webdataset_config.setdefault(
+                "cache_dir",
+                str(
+                    Path(
+                        cache_config.get("cache_dir", "~/.cache/dl-azure/shards")
+                    ).expanduser()
+                ),
+            )
+            if "cache_size" in cache_config:
+                webdataset_config.setdefault("cache_size", cache_config["cache_size"])
+            self.webdataset_config = webdataset_config
 
     def get_shards(self, split: str) -> list[dict[str, Any]]:
-        """Resolve configured or discovered Azure blobs into local cached shards."""
+        """Resolve configured or discovered Azure blobs into authenticated URLs."""
 
         remote_shards = self.get_configured_shards(split)
         if not remote_shards:
@@ -58,43 +60,29 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
             remote_shards = [
                 {"path": blob_path}
                 for prefix in prefixes
-                for blob_path in self.scan_paths(prefix, extension="tar")
+                for blob_path in self.scan_paths(prefix)
+                if blob_path.lower().endswith((".tar", ".tar.gz", ".tgz"))
             ]
 
-        local_shards: list[dict[str, Any]] = []
+        authenticated_shards: list[dict[str, Any]] = []
         for shard in remote_shards:
             blob_path = str(shard["path"])
-            if not blob_path.lower().endswith(".tar"):
+            if not blob_path.lower().endswith((".tar", ".tar.gz", ".tgz")):
                 raise ValueError(
-                    f"Indexed Azure shards must be uncompressed .tar blobs: {blob_path}"
+                    f"Azure WebDataset shards must be tar archives: {blob_path}"
                 )
-            local_tar = self.shard_cache.materialize(
-                self.azure_service,
-                self.container_name,
-                blob_path,
+            authenticated_shards.append(
+                {
+                    **shard,
+                    "path": self.azure_service.get_blob_sas_url(
+                        self.container_name,
+                        blob_path,
+                        expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
+                    ),
+                    "source_path": blob_path,
+                }
             )
-            remote_index = str(
-                shard.get("index_path", f"{blob_path}{self.index_suffix}")
-            )
-            local_index: Path | None = None
-            if self.azure_service.blob_exists(self.container_name, remote_index):
-                local_index = self.shard_cache.materialize(
-                    self.azure_service,
-                    self.container_name,
-                    remote_index,
-                )
-
-            local_shard = {
-                **shard,
-                "path": str(local_tar),
-                "source_path": blob_path,
-            }
-            if local_index is not None:
-                local_shard["index_path"] = str(local_index)
-            else:
-                local_shard.pop("index_path", None)
-            local_shards.append(local_shard)
-        return local_shards
+        return authenticated_shards
 
 
 __all__ = [

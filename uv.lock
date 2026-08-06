@@ -302,6 +302,15 @@ wheels = [
 ]
 
 [[package]]
+name = "braceexpand"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/93/badd4f5ccf25209f3fef2573073da9fe4a45a3da99fca2f800f942130c0f/braceexpand-0.1.7.tar.gz", hash = "sha256:e6e539bd20eaea53547472ff94f4fb5c3d3bf9d0a89388c4b56663aba765f705", size = 7777, upload-time = "2021-05-07T13:49:07.323Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/93/e8c04e80e82391a6e51f218ca49720f64236bc824e92152a2633b74cf7ab/braceexpand-0.1.7-py2.py3-none-any.whl", hash = "sha256:91332d53de7828103dcae5773fb43bc34950b0c8160e35e0f44c4427a3b85014", size = 5923, upload-time = "2021-05-07T13:49:05.146Z" },
+]
+
+[[package]]
 name = "cachetools"
 version = "5.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -804,6 +813,10 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
     { name = "twine" },
+    { name = "webdataset" },
+]
+webdataset = [
+    { name = "webdataset" },
 ]
 
 [package.metadata]
@@ -817,13 +830,15 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "webdataset", marker = "extra == 'dev'", specifier = ">=1,<2" },
+    { name = "webdataset", marker = "extra == 'webdataset'", specifier = ">=1,<2" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["webdataset", "dev"]
 
 [[package]]
 name = "deep-learning-core"
 version = "0.1.4"
-source = { registry = "https://test.pypi.org/simple" }
+source = { registry = "../dl-core/dist" }
 dependencies = [
     { name = "albumentations" },
     { name = "gymnasium" },
@@ -837,9 +852,9 @@ dependencies = [
     { name = "torch" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/fa/a9/2e0c2fcac19d0b53a17041dd39bda814f9e167a0d869bea6ac439d68efb3/deep_learning_core-0.1.4.tar.gz", hash = "sha256:3cb8edc1e99c46308d7848377bd551bdf267f5e62d8472f7ff26ec87c69f62fb", size = 610708, upload-time = "2026-08-05T18:51:12.848Z" }
+sdist = { path = "deep_learning_core-0.1.4.tar.gz" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/3d/da/132c9fb51025051b5ecc275d157a97d286ca4bb2103cd04ba41e75b924a4/deep_learning_core-0.1.4-py3-none-any.whl", hash = "sha256:b31af5d76de113802667189a8ed8f683e1a95b848cee1323985e9752cf3718ec", size = 330197, upload-time = "2026-08-05T18:51:11.423Z" },
+    { path = "deep_learning_core-0.1.4-py3-none-any.whl" },
 ]
 
 [[package]]
@@ -3267,6 +3282,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e3/ad/4a96c425be6fb67e0621e62d86c402b4a17ab2be7f7c055d9bd2f638b9e2/uvicorn-0.42.0.tar.gz", hash = "sha256:9b1f190ce15a2dd22e7758651d9b6d12df09a13d51ba5bf4fc33c383a48e1775", size = 85393, upload-time = "2026-03-16T06:19:50.077Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/89/f8827ccff89c1586027a105e5630ff6139a64da2515e24dafe860bd9ae4d/uvicorn-0.42.0-py3-none-any.whl", hash = "sha256:96c30f5c7abe6f74ae8900a70e92b85ad6613b745d4879eb9b16ccad15645359", size = 68830, upload-time = "2026-03-16T06:19:48.325Z" },
+]
+
+[[package]]
+name = "webdataset"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "braceexpand" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/3a/68800d92e065cf4750ebecf973b13979c0c929b439e1293012938862038d/webdataset-1.0.2.tar.gz", hash = "sha256:7f0498be827cfa46cc5430a58768a24e2c6a410676a61be1838f53d61afdaab4", size = 80090, upload-time = "2025-06-19T23:26:21.945Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/00/aca6beb3658dab4ed3dbb41a78e6e7f31342e0b41d28088f205525751601/webdataset-1.0.2-py3-none-any.whl", hash = "sha256:3dbfced32b25c0d199c6b9787937b6f85742bc3c84f652c846893075c1c082d9", size = 74956, upload-time = "2025-06-19T23:26:20.354Z" },
 ]
 
 [[package]]

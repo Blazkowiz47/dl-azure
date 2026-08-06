@@ -77,8 +77,8 @@ project-specific dataset wrapper:
 - `AzureStreamingWrapper` for direct blob-backed image datasets
 - `AzureStreamingFrameWrapper` for direct blob-backed frame datasets
 - `AzureStreamingMultiFrameWrapper` for direct blob-backed multiframe datasets
-- `AzureComputeTarShardWrapper` for indexed tar shards on mounted inputs
-- `AzureStreamingTarShardWrapper` for locally cached Azure tar blobs
+- `AzureComputeTarShardWrapper` for WebDataset shards on mounted inputs
+- `AzureStreamingTarShardWrapper` for authenticated Azure tar streams
 
 For mounted Azure ML inputs, pass either:
 

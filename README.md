@@ -8,6 +8,15 @@ Azure-oriented dataset wrappers on top of `deep-learning-core`.
 Current release: `deep-learning-azure==0.0.21`.
 Requires `deep-learning-core>=0.1.4,<0.2`.
 
+## What's New in Development?
+
+- Azure tar wrappers now provide mounted paths or authenticated blob URLs to
+  the optional WebDataset integration in `deep-learning-core`
+- WebDataset splits shards between ranks and workers before opening the stream;
+  sidecar indexes and the custom Azure tar cache are no longer required
+- Azure streaming tar support can use WebDataset's on-demand cache when
+  `dataset.cache.cache_dir` is configured
+
 ## What's New in 0.0.21?
 
 - mounted and streaming tar-shard wrappers extend the indexed grouped-sample
@@ -35,7 +44,7 @@ pip install "deep-learning-core[azure]"
 Install the package directly:
 
 ```bash
-pip install deep-learning-azure
+pip install "deep-learning-azure[webdataset]"
 ```
 
 Install in a `uv` project:
@@ -191,11 +200,11 @@ If you enable `face_detected_and_resized_cache`, processed frame images are
 stored in the wrapper cache when a cache backend is available. That is most
 useful for the streaming frame wrappers, where blob reads can be cached locally.
 
-Tar shard wrappers use the indexed, uncompressed `.tar` implementation from
-`dl-core`. Compute wrappers read shards from the resolved mount. Streaming
-wrappers first cache the tar and optional `<shard>.idx.json` blob locally,
-validating cache entries with Azure ETag and content length. Project transforms
-receive grouped member bytes through `file_dict["members"]`.
+Tar shard wrappers use the optional WebDataset integration from `dl-core`.
+Compute wrappers provide mounted shard paths. Streaming wrappers provide
+user-delegation SAS URLs, so WebDataset can divide shards between ranks and
+workers before opening them. Project transforms receive grouped member bytes
+through `file_dict["members"]`.
 
 ```yaml
 dataset:
@@ -212,11 +221,14 @@ dataset:
   persistent_workers: true
   cache:
     cache_dir: /mnt/localssd/dl-azure
-    lock_timeout_seconds: 300
-  batch_sampler:
-    type: round_robin_tar
-    group_pattern: [attack, real]
-    distributed_drop_last: true
+    cache_size: 500000000000
+  webdataset:
+    shard_shuffle: 100
+    sample_shuffle: 10000
+    resampled:
+      train: true
+      validation: false
+      test: false
 ```
 
 Multiframe wrappers add one `multiframe` block:
