@@ -8,6 +8,16 @@ Azure-oriented dataset wrappers on top of `deep-learning-core`.
 Current release: `deep-learning-azure==0.0.22`.
 Requires `deep-learning-core>=0.1.5,<0.2`.
 
+## What's New in Development?
+
+- Azure streaming tar shards now use whole-download retries with exponential
+  backoff for transient timeouts, connection failures, HTTP 408/429, and 5xx
+  responses
+- shard downloads use atomic temporary files, process-safe per-shard locks,
+  fresh Azure clients per attempt, and ETag, size, Azure content, and tar checks
+- Azure tar cache capacity is configured with `cache_size_gb` and defaults to
+  3000 GB when caching is enabled
+
 ## What's New in 0.0.22?
 
 - Azure tar wrappers now provide mounted paths or authenticated blob URLs to
@@ -217,8 +227,14 @@ dataset:
   required_extensions: [png, json]
   persistent_workers: true
   cache:
+    enabled: true
     cache_dir: /mnt/localssd/dl-azure
-    cache_size: 500000000000
+    cache_size_gb: 3000
+    download_retries: 5
+    retry_backoff_seconds: 1
+    retry_backoff_max_seconds: 30
+    connection_timeout_seconds: 20
+    read_timeout_seconds: 120
   webdataset:
     shard_shuffle: 100
     sample_shuffle: 10000
@@ -227,6 +243,10 @@ dataset:
       validation: false
       test: false
 ```
+
+`download_retries` counts retries after the initial attempt. Retry jitter is
+enabled by default. Set `cache.retry_jitter: false` only when fixed delays are
+required. Authentication, permission, and missing-blob errors are not retried.
 
 Multiframe wrappers add one `multiframe` block:
 

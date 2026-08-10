@@ -805,6 +805,7 @@ dependencies = [
     { name = "azure-storage-blob" },
     { name = "azureml-mlflow" },
     { name = "deep-learning-core" },
+    { name = "filelock" },
 ]
 
 [package.optional-dependencies]
@@ -826,6 +827,7 @@ requires-dist = [
     { name = "azure-storage-blob", specifier = "==12.19.0" },
     { name = "azureml-mlflow", specifier = "==1.60.0.post1" },
     { name = "deep-learning-core", specifier = ">=0.1.5,<0.2", index = "https://test.pypi.org/simple" },
+    { name = "filelock", specifier = ">=3,<4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },

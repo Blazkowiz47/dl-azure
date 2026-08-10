@@ -6,6 +6,14 @@ This documentation covers the Azure adapter layer that sits on top of
 Current public release: `deep-learning-azure==0.0.22`, requiring
 `deep-learning-core>=0.1.5,<0.2`.
 
+## What's New in Development?
+
+- Azure streaming tar downloads retry transient whole-shard failures with
+  exponential backoff and clean partial files before each attempt
+- process-safe shard locks prevent DataLoader workers and distributed ranks on
+  the same host from downloading the same shard concurrently
+- tar cache capacity uses `cache_size_gb`, defaulting to 3000 GB when enabled
+
 ## What's New in 0.0.22?
 
 - Azure tar wrappers provide mounted paths or authenticated blob URLs to the

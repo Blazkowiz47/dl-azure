@@ -29,6 +29,7 @@ dependencies = [
     "azure-identity==1.25.1",
     "azure-storage-blob==12.19.0",
     "azureml-mlflow==1.60.0.post1",
+    "filelock>=3,<4",
 ]
 
 [project.optional-dependencies]

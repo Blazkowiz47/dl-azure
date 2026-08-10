@@ -72,10 +72,42 @@ compute root. `AzureStreamingTarShardWrapper` lists or accepts blob paths and
 converts them to read-only user-delegation SAS URLs. WebDataset then splits the
 shard stream by distributed rank and DataLoader worker before opening archives.
 
-Set `dataset.cache.cache_dir` to enable WebDataset's on-demand local shard
-cache, and optionally set `cache_size` in bytes. Without a cache directory,
-archives are streamed from the authenticated URLs. SAS expiry defaults to seven
-days and can be changed with `dataset.sas_expiry_hours`.
+Add a non-empty `dataset.cache` block to enable the on-demand local shard cache.
+The cache is lazy: WebDataset still splits shards by rank and worker before the
+selected shard is downloaded. Without the block, archives stream directly from
+the authenticated URLs. SAS expiry defaults to seven days and can be changed
+with `dataset.sas_expiry_hours`.
+
+```yaml
+dataset:
+  cache:
+    enabled: true
+    cache_dir: /mnt/localssd/dl-azure
+    cache_size_gb: 3000
+    download_retries: 5
+    retry_backoff_seconds: 1
+    retry_backoff_max_seconds: 30
+    retry_jitter: true
+    connection_timeout_seconds: 20
+    read_timeout_seconds: 120
+    lock_timeout_seconds: 3600
+```
+
+`cache_size_gb` defaults to 3000 and is converted internally using 1024^3 bytes
+per GB. The old byte-based `cache_size` key is rejected to avoid unit mistakes.
+`download_retries` is the number of retries after the initial attempt.
+
+Each retry creates a fresh Azure client and downloader. Failed partial files
+are removed, and a completed file is promoted atomically only after its ETag
+condition, blob size, Azure content validation, and tar format have passed. A
+per-shard file lock prevents workers and ranks sharing a host cache from
+downloading the same URL concurrently. SAS query strings are excluded from
+cache identities, so renewed tokens reuse the same shard file.
+
+Timeouts, connection failures, changed ETags, HTTP 408/429, and server errors
+are retried with capped exponential backoff. Authentication, permission, and
+missing-blob responses fail immediately. After the final attempt, the original
+exception is propagated through the DataLoader.
 
 WebDataset supports uncompressed and compressed tar streams. Its shuffle is
 buffered rather than a perfect global permutation, and resampled training may
