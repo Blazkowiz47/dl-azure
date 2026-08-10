@@ -5,10 +5,10 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.22`.
+Current release: `deep-learning-azure==0.0.23`.
 Requires `deep-learning-core>=0.1.5,<0.2`.
 
-## What's New in Development?
+## What's New in 0.0.23?
 
 - Azure streaming tar shards now use whole-download retries with exponential
   backoff for transient timeouts, connection failures, HTTP 408/429, and 5xx
@@ -17,17 +17,6 @@ Requires `deep-learning-core>=0.1.5,<0.2`.
   fresh Azure clients per attempt, and ETag, size, Azure content, and tar checks
 - Azure tar cache capacity is configured with `cache_size_gb` and defaults to
   3000 GB when caching is enabled
-
-## What's New in 0.0.22?
-
-- Azure tar wrappers now provide mounted paths or authenticated blob URLs to
-  the optional WebDataset integration in `deep-learning-core`
-- project Azure wrappers can override `build_shard_sources(split)` to construct
-  blob paths and source weights dynamically before backend resolution
-- WebDataset splits shards between ranks and workers before opening the stream;
-  sidecar indexes and the custom Azure tar cache are no longer required
-- Azure streaming tar support can use WebDataset's on-demand cache when
-  `dataset.cache.cache_dir` is configured
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

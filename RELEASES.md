@@ -3,6 +3,15 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## 0.0.22
+
+- Azure tar wrappers provide mounted paths or authenticated blob URLs to the
+  optional WebDataset integration in `deep-learning-core`
+- project wrappers can dynamically build weighted shard sources before Azure
+  mount resolution or SAS authentication
+- WebDataset handles grouped samples, buffered shuffling, on-demand caching,
+  and distributed rank/worker shard splitting
+
 ## 0.0.21
 
 - mounted and streaming tar-shard wrappers extend the indexed grouped-sample
