@@ -34,6 +34,11 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --extra dev --python ${{ matrix.python-version }}
 
+      - name: Confirm CPU-only PyTorch test environment
+        run: >-
+          uv run --no-sync python -c
+          "import torch; assert torch.version.cuda is None, torch.__version__"
+
       - name: Run Ruff
         run: uv run --no-sync ruff check src tests
 
