@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import mlflow
+import torch
 from pytest import MonkeyPatch
 import yaml
 
@@ -439,7 +441,14 @@ def test_azure_mlflow_callback_logs_phase_metrics_with_epoch_steps(
     callback.set_trainer(_DummyTrainer())
     callback.on_training_start()
     callback.on_test_end(0, {"accuracy": 0.61})
-    callback.on_train_end(1, {"loss": 0.5})
+    callback.on_train_end(
+        1,
+        {
+            "loss": 0.5,
+            "diverged": float("nan"),
+            "overflow": torch.tensor(float("inf")),
+        },
+    )
     callback.on_validation_end(1, {"accuracy": 0.75})
     callback.on_epoch_end(
         1,
@@ -449,6 +458,7 @@ def test_azure_mlflow_callback_logs_phase_metrics_with_epoch_steps(
             "general/state/global_step": 32.0,
         },
     )
+    callback.on_epoch_end(2, {"diverged": float("nan")})
 
     assert metric_events == [
         ({"test/accuracy": 0.61}, 0),
@@ -524,6 +534,52 @@ def test_azure_mlflow_callback_propagates_final_run_status(
         callback.on_training_finalized({"status": run_status})
 
     assert statuses == ["FINISHED", "FAILED", "KILLED"]
+
+
+def test_azure_local_sweep_child_keeps_active_parent_run(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A locally executed Azure sweep child should nest under its parent."""
+    monkeypatch.delenv("MLFLOW_RUN_ID", raising=False)
+    monkeypatch.delenv("AZUREML_RUN_ID", raising=False)
+    tracker = AzureMlflowTracker({"tracking_uri": tmp_path.as_uri()})
+    state = tracker.setup_sweep(
+        experiment_name="demo-experiment",
+        sweep_id="sweep-001",
+        sweep_config={"tracking": {}},
+        total_runs=1,
+    )
+    parent_id = state["tracking_context"]
+    trainer = _DummyTrainer()
+    trainer.config["tracking"].update(
+        uri=state["tracking_uri"],
+        context=parent_id,
+    )
+    trainer.artifact_manager = SimpleNamespace(run_dir=tmp_path / "run")
+    callback = AzureMlflowCallback(log_config=False)
+    callback.set_trainer(trainer)
+
+    try:
+        callback.on_training_start()
+        child_id = callback.run.info.run_id
+        assert child_id != parent_id
+        callback.on_training_finalized({"status": "completed"})
+        assert mlflow.active_run().info.run_id == parent_id
+        client = mlflow.tracking.MlflowClient(tracking_uri=state["tracking_uri"])
+        child_run = client.get_run(child_id)
+        assert child_run.data.tags["mlflow.parentRunId"] == parent_id
+        assert child_run.info.status == "FINISHED"
+        assert client.get_run(parent_id).info.status == "RUNNING"
+    finally:
+        active_run = mlflow.active_run()
+        if (
+            callback.run is not None
+            and active_run is not None
+            and active_run.info.run_id == callback.run.info.run_id
+        ):
+            mlflow.end_run(status="FAILED")
+        tracker.teardown_sweep()
 
 
 def test_azure_mlflow_metrics_source_prefers_remote_metrics(
