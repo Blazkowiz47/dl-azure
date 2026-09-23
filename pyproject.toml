@@ -53,5 +53,8 @@ Issues = "https://github.com/Blazkowiz47/dl-azure/issues"
 [project.entry-points."dl_core.init_extensions"]
 azure = "dl_azure.init_extension:AzureInitExtension"
 
+[project.entry-points."dl_core.runtime_extensions"]
+azure = "dl_azure"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/dl_azure"]
