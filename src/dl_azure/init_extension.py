@@ -270,6 +270,7 @@ class AzureInitExtension(InitExtension):
 
     name = "azure"
     tracking_backend = "azure_mlflow"
+    tracking_priority = 0
 
     def display_name(self) -> str:
         """Return the prompt label for Azure support."""
@@ -317,23 +318,24 @@ class AzureInitExtension(InitExtension):
             "AGENTS.md",
             _append_azure_agents_note(context.get_file("AGENTS.md")),
         )
-        base_path = Path("configs") / "base.yaml"
-        if "  azure_mlflow:\n" not in context.get_file(base_path):
-            if "  metric_logger:\n    log_frequency: 1\n" not in context.get_file(base_path):
-                raise ValueError("Azure callback anchor not found in configs/base.yaml")
+        if getattr(context, "tracking_backend", None) in {None, "azure_mlflow"}:
+            base_path = Path("configs") / "base.yaml"
+            if "  azure_mlflow:\n" not in context.get_file(base_path):
+                if "  metric_logger:\n    log_frequency: 1\n" not in context.get_file(base_path):
+                    raise ValueError("Azure callback anchor not found in configs/base.yaml")
+                context.replace_in_file(
+                    base_path,
+                    "  metric_logger:\n    log_frequency: 1\n",
+                    "  metric_logger:\n    log_frequency: 1\n"
+                    f"{_azure_mlflow_callback_block()}",
+                )
             context.replace_in_file(
-                base_path,
-                "  metric_logger:\n    log_frequency: 1\n",
-                "  metric_logger:\n    log_frequency: 1\n"
-                f"{_azure_mlflow_callback_block()}",
+                Path("configs") / "base_sweep.yaml",
+                context.get_file(Path("configs") / "base_sweep.yaml"),
+                _inject_azure_tracking_fields(
+                    context.get_file(Path("configs") / "base_sweep.yaml")
+                ),
             )
-        context.replace_in_file(
-            Path("configs") / "base_sweep.yaml",
-            context.get_file(Path("configs") / "base_sweep.yaml"),
-            _inject_azure_tracking_fields(
-                context.get_file(Path("configs") / "base_sweep.yaml")
-            ),
-        )
         sweep_path = Path("experiments") / "lr_sweep.yaml"
         sweep_content = context.get_file(sweep_path)
         if "executors: preset:executors.azure" not in sweep_content:
