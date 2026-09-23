@@ -387,8 +387,12 @@ class AzureMlflowCallback(Callback):
             self.logger.warning(f"Failed to log Azure MLflow metrics: {exc}")
 
     def on_training_end(self, logs: dict[str, Any] | None = None) -> None:
-        """Finalize the active Azure MLflow run at the end of training."""
+        """Keep the MLflow run open until trainer artifacts are finalized."""
         super().on_training_end(logs)
+
+    def on_training_finalized(self, logs: dict[str, Any] | None = None) -> None:
+        """Upload finalized artifacts and close an owned Azure MLflow run."""
+        super().on_training_finalized(logs)
         if not self.is_main_process():
             return
         if self.run is None:

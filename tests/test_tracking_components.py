@@ -495,6 +495,8 @@ def test_azure_mlflow_callback_uploads_full_outputs_run_dir_for_local_runs(
     callback.set_trainer(trainer)
     callback.on_training_start()
     callback.on_training_end()
+    assert uploads == []
+    callback.on_training_finalized()
 
     assert uploads == [run_dir]
 
@@ -516,7 +518,10 @@ def test_azure_mlflow_callback_propagates_final_run_status(
     for run_status in ["completed", "failed", "interrupted"]:
         callback.run = SimpleNamespace()
         callback._owns_run = True
+        previous_count = len(statuses)
         callback.on_training_end({"status": run_status})
+        assert len(statuses) == previous_count
+        callback.on_training_finalized({"status": run_status})
 
     assert statuses == ["FINISHED", "FAILED", "KILLED"]
 
