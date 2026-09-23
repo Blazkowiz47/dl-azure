@@ -29,7 +29,7 @@ logging.getLogger("azure.identity").setLevel(logging.ERROR)
 
 
 class AzureClientService:
-    """Centralized Azure client service using DefaultAzureCredential."""
+    """Centralized Azure client service using job credentials when provided."""
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -44,8 +44,19 @@ class AzureClientService:
         if not self.account_name:
             raise ValueError("Azure config must contain 'account_name'")
 
-        # Use DefaultAzureCredential for authentication
-        self.credential = DefaultAzureCredential()
+        configured_account = os.environ.get("AZURE_STORAGE_ACCOUNT")
+        if configured_account and configured_account != self.account_name:
+            raise ValueError(
+                "AZURE_STORAGE_ACCOUNT does not match the configured account_name"
+            )
+        self._sas_token = os.environ.get("AZURE_SAS_TOKEN", "").lstrip("?")
+        self._access_key = os.environ.get("AZURE_ACCESS_KEY")
+        if self._sas_token:
+            self.credential = self._sas_token
+        elif self._access_key:
+            self.credential = self._access_key
+        else:
+            self.credential = DefaultAzureCredential()
         self._container_clients: Dict[str, ContainerClient] = {}
 
         logger.info(f"Initialized Azure client for account: {self.account_name}")
@@ -382,7 +393,7 @@ class AzureClientService:
         expiry_hours: int = 24,
         permissions: str = "r",
     ) -> str:
-        """Get a blob URL with a user-delegation SAS token for streaming access.
+        """Get a signed blob URL for streaming access.
 
         Args:
             container_name: Name of the container
@@ -391,7 +402,7 @@ class AzureClientService:
             permissions: Azure Blob SAS permission string, such as ``r`` or ``rw``
 
         Returns:
-            Blob URL containing a user-delegation SAS token
+            Blob URL containing a read-capable SAS token
 
         Raises:
             ValueError: If expiry or permissions are invalid
@@ -404,31 +415,44 @@ class AzureClientService:
         ):
             raise ValueError(f"Unsupported blob SAS permissions: {permissions!r}")
 
+        blob_url = self.get_blob_url(container_name, blob_path)
+        if self._sas_token:
+            if permissions != "r":
+                raise ValueError(
+                    "A pre-issued read-only Azure SAS token supports only 'r'"
+                )
+            return f"{blob_url}?{self._sas_token}"
+
         start_time = datetime.now(timezone.utc) - timedelta(minutes=5)
         expiry_time = datetime.now(timezone.utc) + timedelta(hours=expiry_hours)
         try:
-            service_client = BlobServiceClient(
-                account_url=(
-                    f"https://{self.account_name}.blob.core.windows.net"
-                ),
-                credential=self.credential,
-            )
-            delegation_key = service_client.get_user_delegation_key(
-                key_start_time=start_time,
-                key_expiry_time=expiry_time,
-            )
-            sas_token = generate_blob_sas(
+            sas_options: dict[str, Any] = dict(
                 account_name=self.account_name,
                 container_name=container_name,
                 blob_name=blob_path,
-                user_delegation_key=delegation_key,
                 permission=BlobSasPermissions.from_string(permissions),
                 start=start_time,
                 expiry=expiry_time,
             )
+            if self._access_key:
+                sas_options["account_key"] = self._access_key
+            else:
+                service_client = BlobServiceClient(
+                    account_url=(
+                        f"https://{self.account_name}.blob.core.windows.net"
+                    ),
+                    credential=self.credential,
+                )
+                sas_options["user_delegation_key"] = (
+                    service_client.get_user_delegation_key(
+                        key_start_time=start_time,
+                        key_expiry_time=expiry_time,
+                    )
+                )
+            sas_token = generate_blob_sas(**sas_options)
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to generate a user-delegation SAS URL for {blob_path}: {exc}"
+                f"Failed to generate a SAS URL for {blob_path}: {exc}"
             ) from exc
 
-        return f"{self.get_blob_url(container_name, blob_path)}?{sas_token}"
+        return f"{blob_url}?{sas_token}"

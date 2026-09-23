@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -205,3 +207,125 @@ def test_execute_run_promotes_default_output_dir_to_azure_outputs(
 
     saved_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert saved_config["runtime"]["output_dir"] == "outputs/artifacts"
+
+
+@pytest.mark.parametrize(
+    ("dont_wait", "interrupt", "status", "expected"),
+    [
+        (True, False, "Running", "submitted"),
+        (False, True, "Running", "submitted"),
+        (False, False, "Mystery", "unknown"),
+        (False, False, "Failed", "failed"),
+        (False, False, "Completed", "success"),
+    ],
+)
+def test_execute_run_classifies_azure_status_without_false_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dont_wait: bool,
+    interrupt: bool,
+    status: str,
+    expected: str,
+) -> None:
+    """Submission and interrupted log streaming are not completed runs."""
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text(
+        yaml.safe_dump({"accelerator": {"type": "cpu"}}), encoding="utf-8"
+    )
+    executor = AzureComputeExecutor(
+        sweep_config={"executor": {"dont_wait_for_completion": dont_wait}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+    executor.env_vars = {"AZURE_SAS_TOKEN": "secret"}
+    executor.generate_run_name = lambda config, index: "demo-run"
+    executor._resolve_submission_command = lambda *args, **kwargs: "python train.py"
+    submitted_kwargs: dict[str, Any] = {}
+    status_checks: list[str] = []
+
+    def fake_command(**kwargs: Any) -> dict[str, Any]:
+        submitted_kwargs.update(kwargs)
+        return kwargs
+
+    def stream(job_name: str) -> None:
+        assert job_name == "job-1"
+        if interrupt:
+            raise KeyboardInterrupt()
+
+    def get(job_name: str) -> SimpleNamespace:
+        status_checks.append(job_name)
+        return SimpleNamespace(status=status)
+
+    monkeypatch.setattr("dl_azure.executors.azure_compute.command", fake_command)
+    executor.ml_client = SimpleNamespace(
+        jobs=SimpleNamespace(
+            create_or_update=lambda job: SimpleNamespace(name="job-1", id="id-1"),
+            stream=stream,
+            get=get,
+        )
+    )
+
+    result = executor.execute_run(0, config_path)
+
+    assert submitted_kwargs["environment_variables"] == executor.env_vars
+    assert result[expected] is True
+    assert sum(bool(result[key]) for key in ("success", "failed", "unknown", "submitted")) == 1
+    assert status_checks == ([] if dont_wait else ["job-1"])
+
+
+def test_sequential_submission_keeps_running_tracker_status(tmp_path: Path) -> None:
+    """The default sequential path must not record accepted jobs as complete."""
+    config_path = tmp_path / "run.yaml"
+    executor = AzureComputeExecutor(
+        sweep_config={
+            "executor": {"dont_wait_for_completion": True, "retry_limit": 2}
+        },
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+    submissions: list[int] = []
+
+    def submit(index: int, path: Path) -> dict[str, Any]:
+        submissions.append(index)
+        return {"submitted": True, "tracking_run_id": "job-1"}
+
+    executor.execute_run = submit
+    statuses: list[str] = []
+    executor._update_tracker = (
+        lambda index, status, path, result=None: statuses.append(status)
+    )
+
+    executor.execute_runs_parallel([(0, config_path)], max_workers=1)
+
+    assert executor.submitted_runs == [0]
+    assert executor.completed_runs == []
+    assert executor.failed_runs == []
+    assert statuses == ["running"]
+    assert submissions == [0]
+
+
+def test_child_job_receives_sas_but_never_storage_account_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A local account key should only be used to mint a scoped job token."""
+    monkeypatch.setenv("AZURE_ACCESS_KEY", "storage-secret")
+    executor = AzureComputeExecutor(
+        sweep_config={"executor": {}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+    executor.azure_config = {"account_name": "demoaccount"}
+    executor.generate_sas_token = lambda expiry_hours=168: "sig=job-token"
+
+    environment = executor.get_job_environment_variables()
+
+    assert environment["AZURE_SAS_TOKEN"] == "sig=job-token"
+    assert environment["AZURE_STORAGE_ACCOUNT"] == "demoaccount"
+    assert "AZURE_ACCESS_KEY" not in environment
+
+    executor.generate_sas_token = lambda expiry_hours=168: None
+    with pytest.raises(RuntimeError, match="refusing to send"):
+        executor.get_job_environment_variables()

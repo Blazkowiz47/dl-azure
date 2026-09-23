@@ -76,6 +76,9 @@ class _AzureRetryingShardCache:
             sample = dict(item) if isinstance(item, dict) else {"url": item}
             url = str(sample["url"])
             parsed = urlsplit(url)
+            public_url = urlunsplit(
+                (parsed.scheme, parsed.netloc, parsed.path, "", "")
+            )
             if parsed.scheme in {"", "file"}:
                 destination = Path(unquote(parsed.path if parsed.scheme else url))
             else:
@@ -155,7 +158,7 @@ class _AzureRetryingShardCache:
                                     and downloaded_size != int(expected_size)
                                 ):
                                     raise OSError(
-                                        f"Azure shard size mismatch for {url}: "
+                                        f"Azure shard size mismatch for {public_url}: "
                                         f"expected {expected_size}, downloaded "
                                         f"{downloaded_size}"
                                     )
@@ -167,7 +170,7 @@ class _AzureRetryingShardCache:
                                 except (OSError, tarfile.TarError) as exc:
                                     raise ValueError(
                                         "Downloaded Azure shard is not a tar "
-                                        f"archive: {url}"
+                                        f"archive: {public_url}"
                                     ) from exc
                                 os.replace(temporary_path, destination)
                                 break
@@ -199,7 +202,10 @@ class _AzureRetryingShardCache:
                                     not retryable
                                     or attempt >= self.download_retries
                                 ):
-                                    raise
+                                    raise RuntimeError(
+                                        f"Azure shard download failed for "
+                                        f"{public_url}: {type(exc).__name__}"
+                                    ) from None
                                 delay = min(
                                     self.retry_backoff_seconds * (2**attempt),
                                     self.retry_backoff_max_seconds,
@@ -212,7 +218,7 @@ class _AzureRetryingShardCache:
                                     attempt + 1,
                                     self.download_retries + 1,
                                     parsed.path,
-                                    exc,
+                                    type(exc).__name__,
                                     delay,
                                 )
                                 time.sleep(delay)
@@ -223,7 +229,7 @@ class _AzureRetryingShardCache:
                                     with contextlib.suppress(Exception):
                                         client.close()
             sample.update(
-                url=url,
+                url=public_url,
                 stream=destination.open("rb"),
                 local_path=str(destination),
             )
@@ -245,63 +251,89 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
-        cache_config = self.config.get("cache", {})
-        self._azure_shard_cache_options: dict[str, Any] | None = None
-        if cache_config and cache_config.get("enabled", True):
-            if "cache_size" in cache_config:
-                raise ValueError(
-                    "Azure tar cache size is configured in GB; replace cache_size "
-                    "with cache_size_gb"
-                )
-            cache_size_gb = float(cache_config.get("cache_size_gb", 3000))
-            if cache_size_gb <= 0:
-                raise ValueError("cache.cache_size_gb must be greater than zero")
-            download_retries = int(cache_config.get("download_retries", 5))
-            if download_retries < 0:
-                raise ValueError("cache.download_retries cannot be negative")
-            retry_backoff_seconds = float(
-                cache_config.get("retry_backoff_seconds", 1)
+        cache_config = self.config.get("cache") or {}
+        if not isinstance(cache_config, dict):
+            raise TypeError("Azure tar cache configuration must be a mapping")
+        if not cache_config.get("enabled", True):
+            raise ValueError(
+                "Azure streaming tar requires its shard cache so signed URLs "
+                "do not enter sample metadata"
             )
-            retry_backoff_max_seconds = float(
-                cache_config.get("retry_backoff_max_seconds", 30)
+        if "cache_size" in cache_config:
+            raise ValueError(
+                "Azure tar cache size is configured in GB; replace cache_size "
+                "with cache_size_gb"
             )
-            if retry_backoff_seconds < 0 or retry_backoff_max_seconds < 0:
-                raise ValueError("Azure tar cache retry backoff cannot be negative")
-            webdataset_config = dict(self.webdataset_config)
-            cache_dir = str(
-                Path(
-                    cache_config.get("cache_dir", "~/.cache/dl-azure/shards")
-                ).expanduser()
-            )
-            cache_size_bytes = int(cache_size_gb * 1024**3)
-            webdataset_config["cache_dir"] = cache_dir
-            webdataset_config["cache_size"] = cache_size_bytes
-            self.webdataset_config = webdataset_config
-            self._azure_shard_cache_options = {
-                "cache_dir": cache_dir,
-                "cache_size_bytes": cache_size_bytes,
-                "download_retries": download_retries,
-                "retry_backoff_seconds": retry_backoff_seconds,
-                "retry_backoff_max_seconds": retry_backoff_max_seconds,
-                "retry_jitter": bool(cache_config.get("retry_jitter", True)),
-                "connection_timeout_seconds": float(
-                    cache_config.get("connection_timeout_seconds", 20)
-                ),
-                "read_timeout_seconds": float(
-                    cache_config.get("read_timeout_seconds", 120)
-                ),
-                "lock_timeout_seconds": float(
-                    cache_config.get("lock_timeout_seconds", 3600)
-                ),
-            }
+        cache_size_gb = float(cache_config.get("cache_size_gb", 3000))
+        if cache_size_gb <= 0:
+            raise ValueError("cache.cache_size_gb must be greater than zero")
+        download_retries = int(cache_config.get("download_retries", 5))
+        if download_retries < 0:
+            raise ValueError("cache.download_retries cannot be negative")
+        retry_backoff_seconds = float(cache_config.get("retry_backoff_seconds", 1))
+        retry_backoff_max_seconds = float(
+            cache_config.get("retry_backoff_max_seconds", 30)
+        )
+        if retry_backoff_seconds < 0 or retry_backoff_max_seconds < 0:
+            raise ValueError("Azure tar cache retry backoff cannot be negative")
+        cache_dir = str(
+            Path(
+                cache_config.get("cache_dir")
+                or self.webdataset_config.get("cache_dir")
+                or "~/.cache/dl-azure/shards"
+            ).expanduser()
+        )
+        cache_size_bytes = int(cache_size_gb * 1024**3)
+        self.webdataset_config = {
+            **self.webdataset_config,
+            "cache_dir": cache_dir,
+            "cache_size": cache_size_bytes,
+        }
+        self._azure_shard_cache_options: dict[str, Any] = {
+            "cache_dir": cache_dir,
+            "cache_size_bytes": cache_size_bytes,
+            "download_retries": download_retries,
+            "retry_backoff_seconds": retry_backoff_seconds,
+            "retry_backoff_max_seconds": retry_backoff_max_seconds,
+            "retry_jitter": bool(cache_config.get("retry_jitter", True)),
+            "connection_timeout_seconds": float(
+                cache_config.get("connection_timeout_seconds", 20)
+            ),
+            "read_timeout_seconds": float(
+                cache_config.get("read_timeout_seconds", 120)
+            ),
+            "lock_timeout_seconds": float(
+                cache_config.get("lock_timeout_seconds", 3600)
+            ),
+        }
+
+    def _transform_webdataset_sample(
+        self,
+        sample: dict[str, Any],
+        *,
+        split: str,
+        metadata_by_shard: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Resolve public shard URLs against metadata from either core layout."""
+        public_url = str(sample.get("__url__", ""))
+        if public_url not in metadata_by_shard:
+            for signed_url, metadata in tuple(metadata_by_shard.items()):
+                parsed_url = urlsplit(signed_url)
+                if urlunsplit(
+                    (parsed_url.scheme, parsed_url.netloc, parsed_url.path, "", "")
+                ) == public_url:
+                    metadata_by_shard[public_url] = metadata
+                    break
+        return super()._transform_webdataset_sample(
+            sample,
+            split=split,
+            metadata_by_shard=metadata_by_shard,
+        )
 
     def build_dataset(self, data: list[dict], split: str) -> Dataset:
         """Replace WebDataset's cache stage with the retrying Azure cache."""
 
         dataset = super().build_dataset(data, split)
-        if self._azure_shard_cache_options is None:
-            return dataset
-
         from webdataset.cache import FileCache
 
         pipelines = getattr(dataset, "datasets", [dataset])
@@ -360,13 +392,18 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
                     raise ValueError(
                         f"Azure WebDataset shards must be tar archives: {blob_path}"
                     )
+                authenticated_url = self.azure_service.get_blob_sas_url(
+                    self.container_name,
+                    blob_path,
+                    expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
+                )
+                parsed_url = urlsplit(authenticated_url)
                 authenticated_shards.append(
                     {
                         **shard,
-                        "path": self.azure_service.get_blob_sas_url(
-                            self.container_name,
-                            blob_path,
-                            expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
+                        "path": authenticated_url,
+                        "public_url": urlunsplit(
+                            (parsed_url.scheme, parsed_url.netloc, parsed_url.path, "", "")
                         ),
                         "source_path": blob_path,
                     }

@@ -161,6 +161,7 @@ class AzureComputeExecutor(BaseExecutor):
         self.env_vars: Dict[str, str] = {}  # Environment variables for jobs
         self.azure_config: Dict[str, Any] = {}  # Azure config (loaded in setup)
         self.retry_attempts: Dict[int, int] = {}  # Track retry attempts per run index
+        self.submitted_runs: List[int] = []  # Accepted jobs not yet completed
 
     def _resolve_configured_parent_job_name(self) -> Optional[str]:
         """Return the explicit Azure parent job configured for this executor."""
@@ -287,12 +288,12 @@ class AzureComputeExecutor(BaseExecutor):
 
         return uri
 
-    def generate_sas_token(self, expiry_hours: int = 72) -> Optional[str]:
+    def generate_sas_token(self, expiry_hours: int = 168) -> Optional[str]:
         """
         Generate a time-limited SAS token for Azure Storage using config from azure-config.json.
 
         Args:
-            expiry_hours: Number of hours until token expires (default: 72)
+            expiry_hours: Number of hours until token expires (default: 168)
 
         Returns:
             SAS token string or None if generation fails
@@ -336,8 +337,10 @@ class AzureComputeExecutor(BaseExecutor):
             )
             return sas_token
 
-        except Exception as e:
-            self.logger.error(f"Failed to generate SAS token: {e}")
+        except Exception as exc:
+            self.logger.error(
+                "Failed to generate SAS token: %s", type(exc).__name__
+            )
             return None
 
     def get_job_environment_variables(self) -> Dict[str, str]:
@@ -357,9 +360,9 @@ class AzureComputeExecutor(BaseExecutor):
         # Get storage account name from config
         storage_account_name = self.azure_config.get("account_name")
 
-        # Try to generate SAS token for more secure access
+        # Create a read-only token locally; never send the account key to jobs.
         if storage_account_name and os.environ.get("AZURE_ACCESS_KEY"):
-            # Generate time-limited SAS token (default: 72 hours)
+            # Match the default streaming-shard SAS lifetime.
             sas_token = self.generate_sas_token()
 
             if sas_token:
@@ -370,31 +373,24 @@ class AzureComputeExecutor(BaseExecutor):
                     f"Configured time-limited SAS token for storage account '{storage_account_name}'"
                 )
                 self.logger.info(
-                    "Jobs will use SAS token for blob storage access (read-only, expires in 72 hours)"
+                    "Jobs will use SAS token for blob storage access "
+                    "(read-only, expires in 168 hours)"
                 )
             else:
-                # Fall back to access key if SAS generation fails
-                access_key = os.environ.get("AZURE_ACCESS_KEY")
-                if access_key:
-                    self.logger.warning(
-                        "SAS token generation failed, falling back to access key"
-                    )
-                    env_vars["AZURE_STORAGE_ACCOUNT"] = storage_account_name
-                    env_vars["AZURE_ACCESS_KEY"] = access_key
+                raise RuntimeError(
+                    "SAS token generation failed; refusing to send the storage "
+                    "account key to an Azure ML job"
+                )
+        elif os.environ.get("AZURE_ACCESS_KEY"):
+            raise ValueError(
+                "azure-config.json needs account_name to issue a job SAS "
+                "token from AZURE_ACCESS_KEY"
+            )
         else:
-            # Legacy mode: only access key without storage account name
-            access_key = os.environ.get("AZURE_ACCESS_KEY")
-            if access_key:
-                env_vars["AZURE_ACCESS_KEY"] = access_key
-                self.logger.warning(
-                    "Using AZURE_ACCESS_KEY without storage account name in config. "
-                    "Add 'account_name' to azure-config.json to enable SAS token generation."
-                )
-            else:
-                self.logger.warning(
-                    "AZURE_ACCESS_KEY not set. Blob storage access in jobs may fail. "
-                    "Set AZURE_ACCESS_KEY environment variable for authentication."
-                )
+            self.logger.info(
+                "No storage key configured; child jobs will use Azure "
+                "managed identity for blob access"
+            )
 
         return env_vars
 
@@ -540,7 +536,6 @@ class AzureComputeExecutor(BaseExecutor):
                 experiment_name=self.experiment_name,
                 display_name=sweep_name,
                 description=f"Parent job for sweep {self.sweep_id} with {total_runs} runs",
-                environment_variables=self.env_vars,
             )
 
             # Submit parent job
@@ -708,9 +703,10 @@ class AzureComputeExecutor(BaseExecutor):
             self.logger.info(
                 f"Submitting {total_runs} Azure ML jobs with {max_workers} parallel workers"
             )
-            self.logger.info(
-                "Each job will wait for completion (jobs run in parallel using threading)"
-            )
+            if self.dont_wait_for_completion:
+                self.logger.info("Jobs will be submitted without waiting")
+            else:
+                self.logger.info("Each job will wait for completion")
 
             # Use ThreadPoolExecutor for parallel submission
             # This allows multiple jobs to wait for completion concurrently
@@ -741,6 +737,15 @@ class AzureComputeExecutor(BaseExecutor):
                             )
                             self.logger.info(
                                 f"Job {run_index + 1}/{total_runs} completed successfully "
+                                f"(tracking ID: {tracking_run_id})"
+                            )
+                        elif result.get("submitted", False):
+                            self.submitted_runs.append(run_index)
+                            self._update_tracker(
+                                run_index, "running", config_path, result=result
+                            )
+                            self.logger.info(
+                                f"Job {run_index + 1}/{total_runs} submitted "
                                 f"(tracking ID: {tracking_run_id})"
                             )
                         elif unknown:
@@ -780,9 +785,12 @@ class AzureComputeExecutor(BaseExecutor):
                         )
         else:
             self.logger.info(f"Submitting {total_runs} Azure ML jobs sequentially")
-            self.logger.info(
-                "Will wait for each job to complete before submitting next"
-            )
+            if self.dont_wait_for_completion:
+                self.logger.info("Jobs will be submitted without waiting")
+            else:
+                self.logger.info(
+                    "Will wait for each job to complete before submitting next"
+                )
 
             # Sequential execution
             for run_index, config_path in run_descriptors:
@@ -802,6 +810,15 @@ class AzureComputeExecutor(BaseExecutor):
                         )
                         self.logger.info(
                             f"Job {run_index + 1}/{total_runs} completed "
+                            f"(tracking ID: {tracking_run_id})"
+                        )
+                    elif result.get("submitted", False):
+                        self.submitted_runs.append(run_index)
+                        self._update_tracker(
+                            run_index, "running", config_path, result=result
+                        )
+                        self.logger.info(
+                            f"Job {run_index + 1}/{total_runs} submitted "
                             f"(tracking ID: {tracking_run_id})"
                         )
                     elif unknown:
@@ -900,6 +917,14 @@ class AzureComputeExecutor(BaseExecutor):
                         self.logger.info(
                             f"[RETRY {retry_attempt}] ✓ Job {run_index + 1} succeeded"
                         )
+                    elif result.get("submitted", False):
+                        self.submitted_runs.append(run_index)
+                        self._update_tracker(
+                            run_index, "running", config_path, result=result
+                        )
+                        self.logger.info(
+                            f"[RETRY {retry_attempt}] Job {run_index + 1} submitted"
+                        )
                     elif unknown:
                         self.unknown_runs.append(run_index)
                         self._update_tracker(
@@ -945,35 +970,10 @@ class AzureComputeExecutor(BaseExecutor):
                 f"\n{len(self.unknown_runs)} jobs have unknown status - "
                 "verify manually in Azure ML Studio"
             )
-        if not self.failed_runs and not self.unknown_runs:
+        if not self.failed_runs and not self.unknown_runs and not self.submitted_runs:
             self.logger.info(
                 f"\nAll failed jobs succeeded after retry (total attempts: {retry_attempt})"
             )
-
-    def _is_connection_error(self, exception: Exception) -> bool:
-        """
-        Check if an exception is a network/connection error.
-
-        Args:
-            exception: The exception to check
-
-        Returns:
-            True if the exception appears to be a connection/network error
-        """
-        error_str = str(exception).lower()
-        connection_indicators = [
-            "failed to resolve",
-            "name or service not known",
-            "connection",
-            "timeout",
-            "network",
-            "urllib3",
-            "ssl",
-            "certificate",
-            "connectionerror",
-            "httperror",
-        ]
-        return any(indicator in error_str for indicator in connection_indicators)
 
     def _check_job_status_with_retries(
         self, job_name: str, max_retries: int = 5, initial_wait: int = 2
@@ -1026,6 +1026,7 @@ class AzureComputeExecutor(BaseExecutor):
             - "success" (bool): True if job completed successfully
             - "failed" (bool): True if job failed
             - "unknown" (bool): True if job status could not be determined
+            - "submitted" (bool): True if Azure accepted a job still in progress
             - "tracking_run_id" (Optional[str]): The external tracking run ID
             - "tracking_run_name" (str): The descriptive run name
         """
@@ -1103,6 +1104,7 @@ class AzureComputeExecutor(BaseExecutor):
             description=f"Child run {run_index + 1} from sweep {self.sweep_id}",
             inputs=inputs,  # Mount datastore (None if not configured)
             parent_job_name=self.parent_job_name,  # Nest under parent job
+            environment_variables=self.env_vars,
         )
 
         # Submit job
@@ -1114,114 +1116,54 @@ class AzureComputeExecutor(BaseExecutor):
             f"Submitted job {run_index + 1}: {submitted_job.name} (display: {run_name}, id: {submitted_job.id})"
         )
 
-        # Wait for job completion unless explicitly disabled
-        job_succeeded = True
+        # A submitted job is not a completed run until Azure confirms it.
+        job_succeeded: bool | None = None
+        submitted_only = bool(self.dont_wait_for_completion and submitted_job.name)
         if not self.dont_wait_for_completion and submitted_job.name:
             self.logger.info(f"Waiting for job {submitted_job.name} to complete...")
             self.logger.info("Streaming logs (Ctrl+C to skip waiting and continue):")
 
-            streaming_failed = False
-
             try:
-                # Stream logs and wait for completion
                 self.ml_client.jobs.stream(submitted_job.name)
-
             except KeyboardInterrupt:
                 self.logger.warning(
                     f"Skipped waiting for job {submitted_job.name}. "
                     "Job will continue running in Azure."
                 )
-                # Check status before returning
-                status = self._check_job_status_with_retries(
-                    submitted_job.name, max_retries=3
+            except Exception as e:
+                self.logger.warning(
+                    f"Log streaming failed for job {submitted_job.name}: "
+                    f"{type(e).__name__}. Checking the job status."
                 )
-                if status:
-                    self.logger.info(f"Job status at interruption: {status}")
-                job_succeeded = True  # Don't fail on user interruption
 
-            except Exception as e:
-                # Check if this is a connection/network error
-                if self._is_connection_error(e):
-                    self.logger.warning(
-                        f"Connection error while streaming logs for job {submitted_job.name}: {e}"
-                    )
-                    self.logger.info(
-                        "Log streaming failed, but job may still be running. Checking job status..."
-                    )
-                    streaming_failed = True
-                else:
-                    # Non-connection error - likely a real problem
-                    self.logger.error(
-                        f"Error while streaming logs for job {submitted_job.name}: {e}"
-                    )
-                    streaming_failed = True
-
-            # Always try to check final job status
-            try:
-                if streaming_failed:
-                    # Use retry logic for connection issues
-                    job_status = self._check_job_status_with_retries(submitted_job.name)
-
-                    if job_status is None:
-                        # Could not determine status after retries
-                        self.logger.error(
-                            f"Unable to determine status for job {submitted_job.name} after connection failure. "
-                            "Job may still be running - check Azure ML Studio manually."
-                        )
-                        # Return unknown status instead of assuming success
-                        job_succeeded = None  # None indicates unknown status
-                    else:
-                        # Successfully got status
-                        if job_status == "Completed":
-                            self.logger.info(
-                                f"✓ Job {submitted_job.name} completed successfully"
-                            )
-                            job_succeeded = True
-                        elif job_status in [
-                            "Running",
-                            "Preparing",
-                            "Starting",
-                            "Provisioning",
-                            "Queued",
-                        ]:
-                            self.logger.warning(
-                                f"Job {submitted_job.name} is still running (status: {job_status}). "
-                                "Status is indeterminate - check Azure ML Studio manually."
-                            )
-                            job_succeeded = None  # Unknown status - job still running
-                        else:
-                            self.logger.error(
-                                f"✗ Job {submitted_job.name} failed with status: {job_status}"
-                            )
-                            job_succeeded = False
-                else:
-                    # Normal flow - streaming completed without error
-                    final_job = self.ml_client.jobs.get(submitted_job.name)
-                    job_status = final_job.status
-
-                    if job_status == "Completed":
-                        self.logger.info(
-                            f"✓ Job {submitted_job.name} completed successfully"
-                        )
-                        job_succeeded = True
-                    else:
-                        self.logger.error(
-                            f"✗ Job {submitted_job.name} failed with status: {job_status}"
-                        )
-                        job_succeeded = False
-
-            except Exception as e:
+            job_status = self._check_job_status_with_retries(submitted_job.name)
+            if job_status == "Completed":
+                job_succeeded = True
+                self.logger.info(f"Job {submitted_job.name} completed successfully")
+            elif job_status in {"Failed", "Canceled", "Cancelled"}:
+                job_succeeded = False
                 self.logger.error(
-                    f"Failed to check final status for job {submitted_job.name}: {e}"
+                    f"Job {submitted_job.name} ended with status: {job_status}"
                 )
-                # Can't determine status - mark as unknown
-                job_succeeded = None
+            elif job_status in {
+                "Running", "Preparing", "Starting", "Provisioning", "Queued"
+            }:
+                submitted_only = True
+                self.logger.info(
+                    f"Job {submitted_job.name} remains active ({job_status})"
+                )
+            else:
+                self.logger.warning(
+                    f"Could not determine a terminal status for job "
+                    f"{submitted_job.name}: {job_status}"
+                )
 
-        # Return success/failed/unknown status and tracking identifiers
+        # Preserve accepted-but-unfinished jobs as running in the sweep tracker.
         return {
             "success": job_succeeded is True,
             "failed": job_succeeded is False,
-            "unknown": job_succeeded is None,
+            "unknown": job_succeeded is None and not submitted_only,
+            "submitted": submitted_only,
             "tracking_run_id": tracking_run_id,
             "tracking_run_name": run_name,
         }
@@ -1243,7 +1185,10 @@ class AzureComputeExecutor(BaseExecutor):
     def teardown(self) -> None:
         """Print summary after all jobs are submitted/completed."""
         total_jobs = (
-            len(self.completed_runs) + len(self.failed_runs) + len(self.unknown_runs)
+            len(self.completed_runs)
+            + len(self.failed_runs)
+            + len(self.unknown_runs)
+            + len(self.submitted_runs)
         )
 
         self.logger.info(f"\n{'=' * 60}")
@@ -1251,6 +1196,7 @@ class AzureComputeExecutor(BaseExecutor):
         self.logger.info(f"{'=' * 60}")
         self.logger.info(f"Total jobs: {total_jobs}")
         self.logger.info(f"Completed successfully: {len(self.completed_runs)}")
+        self.logger.info(f"Submitted and still active: {len(self.submitted_runs)}")
         self.logger.info(f"Failed: {len(self.failed_runs)}")
 
         if self.unknown_runs:

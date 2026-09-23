@@ -13,6 +13,9 @@ from dl_azure.storage.client import AzureClientService
 
 def _client(monkeypatch: MonkeyPatch) -> AzureClientService:
     """Create a client without consulting the host credential chain."""
+    monkeypatch.delenv("AZURE_SAS_TOKEN", raising=False)
+    monkeypatch.delenv("AZURE_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("AZURE_STORAGE_ACCOUNT", raising=False)
     monkeypatch.setattr(
         "dl_azure.storage.client.DefaultAzureCredential",
         lambda: "credential",
@@ -71,6 +74,62 @@ def test_get_blob_sas_url_generates_user_delegation_signature(
     permission = sas_arguments["permission"]
     assert permission.read is True
     assert permission.write is True
+
+
+def test_job_sas_token_is_used_for_blob_urls(monkeypatch: MonkeyPatch) -> None:
+    """Child jobs should use the read-only token supplied by their executor."""
+    monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "demoaccount")
+    monkeypatch.setenv("AZURE_SAS_TOKEN", "?sv=1&sig=secret")
+    monkeypatch.setattr(
+        "dl_azure.storage.client.DefaultAzureCredential",
+        lambda: (_ for _ in ()).throw(AssertionError("AAD should not be used")),
+    )
+
+    client = AzureClientService({"account_name": "demoaccount"})
+
+    assert client.get_blob_sas_url("images", "sample.jpg") == (
+        "https://demoaccount.blob.core.windows.net/images/sample.jpg"
+        "?sv=1&sig=secret"
+    )
+    with pytest.raises(ValueError, match="read-only"):
+        client.get_blob_sas_url("images", "sample.jpg", permissions="rw")
+
+
+def test_job_sas_token_rejects_account_mismatch(monkeypatch: MonkeyPatch) -> None:
+    """A token for another storage account must not be used by this client."""
+    monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "anotheraccount")
+    monkeypatch.setenv("AZURE_SAS_TOKEN", "sig=secret")
+
+    with pytest.raises(ValueError, match="does not match"):
+        AzureClientService({"account_name": "demoaccount"})
+
+
+def test_access_key_generates_blob_sas_without_delegation(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """The key fallback should create signed URLs without requesting AAD."""
+    monkeypatch.setenv("AZURE_ACCESS_KEY", "account-key")
+    monkeypatch.delenv("AZURE_SAS_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "dl_azure.storage.client.DefaultAzureCredential",
+        lambda: (_ for _ in ()).throw(AssertionError("AAD should not be used")),
+    )
+    calls: dict[str, object] = {}
+
+    def fake_generate_blob_sas(**kwargs: object) -> str:
+        calls.update(kwargs)
+        return "sig=generated"
+
+    monkeypatch.setattr(
+        "dl_azure.storage.client.generate_blob_sas", fake_generate_blob_sas
+    )
+
+    client = AzureClientService({"account_name": "demoaccount"})
+    url = client.get_blob_sas_url("images", "sample.jpg")
+
+    assert url.endswith("?sig=generated")
+    assert calls["account_key"] == "account-key"
+    assert "user_delegation_key" not in calls
 
 
 @pytest.mark.parametrize(

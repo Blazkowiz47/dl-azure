@@ -237,6 +237,8 @@ dataset:
 `download_retries` counts retries after the initial attempt. Retry jitter is
 enabled by default. Set `cache.retry_jitter: false` only when fixed delays are
 required. Authentication, permission, and missing-blob errors are not retried.
+Streaming tar shards use the local cache by default so sample metadata and
+download errors do not expose signed URL query strings.
 
 Multiframe wrappers add one `multiframe` block:
 

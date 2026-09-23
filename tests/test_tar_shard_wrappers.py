@@ -14,6 +14,7 @@ from dl_azure.datasets import (
     AzureComputeTarShardWrapper,
     AzureStreamingTarShardWrapper,
 )
+from dl_azure.datasets.tar_shard import _AzureRetryingShardCache
 
 
 def _write_tar(path: Path) -> None:
@@ -213,6 +214,9 @@ def test_streaming_tar_cache_retries_whole_azure_downloads(
     assert loader is not None
     batch = next(iter(loader))
     assert batch["key"] == ["sample"]
+    assert batch["source_path"] == ["train/demo.tar"]
+    assert batch["shard_path"] == [shard_url.split("?", 1)[0]]
+    assert "sig=secret" not in repr(batch)
     assert attempts == [shard_url, shard_url]
     assert len(list((tmp_path / "cache").glob("*.tar"))) == 1
     assert not list((tmp_path / ".cache.parts").glob("*.part"))
@@ -244,3 +248,43 @@ def test_streaming_tar_cache_size_is_configured_in_gb(tmp_path: Path) -> None:
                 "cache": {"enabled": True, "cache_size": 1000},
             }
         )
+
+    with pytest.raises(ValueError, match="requires its shard cache"):
+        _DynamicStreamingTarWrapper(
+            {
+                **common,
+                "cache": {"enabled": False},
+            }
+        )
+
+
+def test_azure_cache_errors_do_not_expose_sas_token(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """Download failures must not surface a signed URL in errors or logs."""
+    shard_url = "https://demo.blob.core.windows.net/data/shard.tar?sig=secret"
+
+    def fail_download(url: str) -> Any:
+        raise OSError(f"Could not open {url}")
+
+    monkeypatch.setattr(
+        "dl_azure.datasets.tar_shard.BlobClient.from_blob_url", fail_download
+    )
+    cache = _AzureRetryingShardCache(
+        str(tmp_path / "cache"),
+        cache_size_bytes=1024**3,
+        download_retries=0,
+        retry_backoff_seconds=0,
+        retry_backoff_max_seconds=0,
+        retry_jitter=False,
+        connection_timeout_seconds=1,
+        read_timeout_seconds=1,
+        lock_timeout_seconds=1,
+    )
+
+    with pytest.raises(RuntimeError, match="Azure shard download failed") as error:
+        list(cache([shard_url]))
+
+    assert "sig=secret" not in str(error.value)
+    assert "?" not in str(error.value)

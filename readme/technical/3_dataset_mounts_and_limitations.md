@@ -69,14 +69,15 @@ credentials are never mixed through a process-wide cache.
 
 `AzureComputeTarShardWrapper` resolves relative `.tar` paths under the normal
 compute root. `AzureStreamingTarShardWrapper` lists or accepts blob paths and
-converts them to read-only user-delegation SAS URLs. WebDataset then splits the
+converts them to read-only signed URLs. WebDataset then splits the
 shard stream by distributed rank and DataLoader worker before opening archives.
 
-Add a non-empty `dataset.cache` block to enable the on-demand local shard cache.
-The cache is lazy: WebDataset still splits shards by rank and worker before the
-selected shard is downloaded. Without the block, archives stream directly from
-the authenticated URLs. SAS expiry defaults to seven days and can be changed
-with `dataset.sas_expiry_hours`.
+The on-demand local shard cache is enabled by default and is required for this
+wrapper. It removes SAS query strings before shard URLs enter sample metadata;
+`dataset.cache.enabled: false` is rejected. The cache is lazy: WebDataset still
+splits shards by rank and worker before the selected shard is downloaded. SAS
+expiry defaults to seven days and can be changed with
+`dataset.sas_expiry_hours` when a new token is generated in the worker.
 
 ```yaml
 dataset:

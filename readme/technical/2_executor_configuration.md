@@ -34,6 +34,7 @@ executor:
   - number of processes per node for distributed execution
 - `dont_wait_for_completion`
   - if `true`, submit and return without waiting for each child job
+  - accepted jobs remain `running` in sweep tracking until completion is known
 - `retry_limit`
   - number of retry rounds for failed runs
 - `azure_config_path`
@@ -56,13 +57,14 @@ executor:
 The executor also reads:
 
 - `azure-config.json` by default, or the configured `executor.azure_config_path`
-- `AZURE_ACCESS_KEY` when generating SAS tokens for storage access
+- `AZURE_ACCESS_KEY` on the submitting machine when generating a read-only SAS
+  token for child jobs; the account key itself is not sent to Azure ML jobs
 
 ## Submission Model
 
 The executor submits each generated sweep run as an Azure ML command job. The
 parent process is a sweep orchestrator, while each child config becomes its own
-Azure job.
+Azure job. Child jobs receive the scoped storage token when one is configured.
 
 When `executor.command` is set, the executor still uses the same Azure ML job
 submission flow, but swaps the child job command to the configured string.
