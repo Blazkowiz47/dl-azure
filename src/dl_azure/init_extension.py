@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import yaml
 
 from dl_core.init_extensions import InitExtension, ScaffoldContext
 
@@ -78,19 +79,19 @@ def _append_gitignore_patterns(
 
 
 def _inject_azure_tracking_fields(content: str) -> str:
-    """Inject Azure MLflow tracking fields into the sweep scaffold."""
-
-    if "tracking:\n" not in content:
+    """Set the Azure sweep backend without silently duplicating it."""
+    marker = "tracking:\n"
+    if content.count(marker) != 1:
+        raise ValueError("Expected one tracking block in configs/base_sweep.yaml")
+    tracking = (yaml.safe_load(content) or {}).get("tracking")
+    if not isinstance(tracking, dict):
+        raise ValueError("Expected a mapping at tracking in configs/base_sweep.yaml")
+    backend = tracking.get("backend")
+    if backend == "azure_mlflow":
         return content
-
-    if "tracking:\n  backend: azure_mlflow\n" in content:
-        return content
-
-    return content.replace(
-        "tracking:\n",
-        "tracking:\n  backend: azure_mlflow\n",
-        1,
-    )
+    if backend is not None:
+        raise ValueError("Sweep tracking backend is already configured")
+    return content.replace(marker, f"{marker}  backend: azure_mlflow\n", 1)
 
 
 def _merged_azure_config(target_dir: Path) -> str:
@@ -102,11 +103,11 @@ def _merged_azure_config(target_dir: Path) -> str:
 
     try:
         existing_config = json.loads(existing_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return json.dumps(default_config, indent=2) + "\n"
+    except json.JSONDecodeError as exc:
+        raise ValueError("Existing azure-config.json is not valid JSON") from exc
 
     if not isinstance(existing_config, dict):
-        return json.dumps(default_config, indent=2) + "\n"
+        raise ValueError("Existing azure-config.json must be a JSON object")
 
     merged_config = {**default_config, **existing_config}
     return json.dumps(merged_config, indent=2) + "\n"
@@ -268,6 +269,7 @@ class AzureInitExtension(InitExtension):
     """Expose Azure scaffold wiring when dl-azure is installed."""
 
     name = "azure"
+    tracking_backend = "azure_mlflow"
 
     def display_name(self) -> str:
         """Return the prompt label for Azure support."""
@@ -315,12 +317,16 @@ class AzureInitExtension(InitExtension):
             "AGENTS.md",
             _append_azure_agents_note(context.get_file("AGENTS.md")),
         )
-        context.replace_in_file(
-            Path("configs") / "base.yaml",
-            "  metric_logger:\n    log_frequency: 1\n",
-            "  metric_logger:\n    log_frequency: 1\n"
-            f"{_azure_mlflow_callback_block()}",
-        )
+        base_path = Path("configs") / "base.yaml"
+        if "  azure_mlflow:\n" not in context.get_file(base_path):
+            if "  metric_logger:\n    log_frequency: 1\n" not in context.get_file(base_path):
+                raise ValueError("Azure callback anchor not found in configs/base.yaml")
+            context.replace_in_file(
+                base_path,
+                "  metric_logger:\n    log_frequency: 1\n",
+                "  metric_logger:\n    log_frequency: 1\n"
+                f"{_azure_mlflow_callback_block()}",
+            )
         context.replace_in_file(
             Path("configs") / "base_sweep.yaml",
             context.get_file(Path("configs") / "base_sweep.yaml"),
@@ -328,16 +334,40 @@ class AzureInitExtension(InitExtension):
                 context.get_file(Path("configs") / "base_sweep.yaml")
             ),
         )
-        context.replace_in_file(
-            Path("configs") / "base_sweep.yaml",
-            "executor: preset:executors.local",
-            "executor: preset:executors.azure",
-        )
+        sweep_path = Path("experiments") / "lr_sweep.yaml"
+        sweep_content = context.get_file(sweep_path)
+        if "executors: preset:executors.azure" not in sweep_content:
+            if "executors: preset:executors.local" not in sweep_content:
+                raise ValueError(
+                    "Azure executor anchor not found in experiments/lr_sweep.yaml"
+                )
+            context.replace_in_file(
+                sweep_path,
+                "executors: preset:executors.local",
+                "executors: preset:executors.azure",
+            )
         presets_path = Path("configs") / "presets.yaml"
-        context.set_file(
-            presets_path,
-            f"{context.get_file(presets_path).rstrip()}{_azure_executor_preset()}",
-        )
+        presets_content = context.get_file(presets_path)
+        presets = yaml.safe_load(presets_content) or {}
+        if not isinstance(presets, dict):
+            raise ValueError("configs/presets.yaml must contain a mapping")
+        executors = presets.get("executors", {})
+        if not isinstance(executors, dict):
+            raise ValueError("configs/presets.yaml executors must be a mapping")
+        if "azure" not in executors:
+            azure_preset = _azure_executor_preset()
+            if "executors:\n" in presets_content:
+                azure_preset = azure_preset.split("executors:\n", 1)[1]
+                context.replace_in_file(
+                    presets_path,
+                    "executors:\n",
+                    f"executors:\n{azure_preset}",
+                )
+            else:
+                context.set_file(
+                    presets_path,
+                    f"{presets_content.rstrip()}{azure_preset}",
+                )
         context.set_file(
             "azure-config.json",
             _merged_azure_config(context.target_dir),

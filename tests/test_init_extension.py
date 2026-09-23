@@ -4,9 +4,36 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from dl_core.init_extensions import ProjectNames, ScaffoldContext
 
-from dl_azure.init_extension import AzureInitExtension
+from dl_azure.init_extension import (
+    AzureInitExtension,
+    _inject_azure_tracking_fields,
+    _merged_azure_config,
+)
+
+
+def test_azure_tracking_patch_requires_unclaimed_tracking_block() -> None:
+    """A changed template must not silently omit or duplicate a backend."""
+    with pytest.raises(ValueError, match="Expected one tracking block"):
+        _inject_azure_tracking_fields("fixed: {}\n")
+    with pytest.raises(ValueError, match="already configured"):
+        _inject_azure_tracking_fields("tracking:\n  backend: mlflow\n")
+    content = "tracking:\n  backend: azure_mlflow\n"
+    assert _inject_azure_tracking_fields(content) == content
+
+
+def test_invalid_existing_azure_config_is_not_replaced(tmp_path: Path) -> None:
+    """Invalid user config needs repair, not replacement with placeholders."""
+    config_path = tmp_path / "azure-config.json"
+    config_path.write_text("{invalid", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        _merged_azure_config(tmp_path)
+
+    assert config_path.read_text(encoding="utf-8") == "{invalid"
 
 
 def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
@@ -53,10 +80,13 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
                 "  # sweep_name: demo\n"
                 "  # Optional sweep grouping override. Defaults to the sweep filename.\n"
                 '  run_name_template: "lr_{optimizers.lr}"\n'
-                "fixed:\n"
-                "  executor: preset:executors.local\n"
             ),
-            Path("configs") / "presets.yaml": "# presets\n",
+            Path("experiments") / "lr_sweep.yaml": (
+                "fixed:\n  executors: preset:executors.local\n"
+            ),
+            Path("configs") / "presets.yaml": (
+                "# presets\nexecutors:\n  local:\n    executor.name: local\n"
+            ),
         },
         enabled_extensions={"azure"},
     )
@@ -68,7 +98,7 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert '"deep-learning-core[azure]"' not in pyproject_text
     assert "import dl_azure" in context.get_file(Path("src") / "bootstrap.py")
     assert "preset:executors.azure" in context.get_file(
-        Path("configs") / "base_sweep.yaml"
+        Path("experiments") / "lr_sweep.yaml"
     )
     assert "backend: azure_mlflow" in context.get_file(
         Path("configs") / "base_sweep.yaml"
@@ -83,6 +113,8 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert "experiment_name:" not in context.get_file(Path("configs") / "base.yaml")
     assert "executors:" in context.get_file(Path("configs") / "presets.yaml")
     presets_text = context.get_file(Path("configs") / "presets.yaml")
+    assert presets_text.count("executors:\n") == 1
+    assert "  local:\n" in presets_text
     assert 'executor.compute_target: "<compute-target>"' in presets_text
     assert 'executor.environment_name: "<environment-name>"' in presets_text
     assert 'executor.datastore_name: "<datastore-name-or-null>"' in presets_text
@@ -103,6 +135,24 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     dataset_file = context.get_file(Path("src") / "datasets" / "demo.py")
     assert "pad-datasets" not in dataset_file
     assert "dataset.container_name" in dataset_file
+
+    AzureInitExtension().apply(context)
+    assert context.get_file(Path("configs") / "base.yaml").count(
+        "  azure_mlflow:\n"
+    ) == 1
+    assert context.get_file(Path("configs") / "base_sweep.yaml").count(
+        "  backend: azure_mlflow\n"
+    ) == 1
+    assert context.get_file(Path("configs") / "presets.yaml").count(
+        "  azure:\n"
+    ) == 1
+
+    context.set_file(
+        Path("experiments") / "lr_sweep.yaml",
+        "fixed:\n  executors: preset:executors.custom\n",
+    )
+    with pytest.raises(ValueError, match="Azure executor anchor not found"):
+        AzureInitExtension().apply(context)
 
 
 def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> None:
@@ -153,8 +203,9 @@ def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> No
                 "  # sweep_name: demo\n"
                 "  # Optional sweep grouping override. Defaults to the sweep filename.\n"
                 '  run_name_template: "lr_{optimizers.lr}"\n'
-                "fixed:\n"
-                "  executor: preset:executors.local\n"
+            ),
+            Path("experiments") / "lr_sweep.yaml": (
+                "fixed:\n  executors: preset:executors.local\n"
             ),
             Path("configs") / "presets.yaml": "# presets\n",
         },

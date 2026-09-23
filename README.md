@@ -67,7 +67,8 @@ uv add "deep-learning-core[azure]"
 
 The installed package registers its runtime components through dl-core's
 extension entry points. `dl-init --with-azure` also prepares the experiment
-scaffold and creates `azure-config.json`.
+scaffold, selects `executors.azure` in the example sweep, and creates
+`azure-config.json`.
 
 The Azure executor is sweep-oriented. Use
 `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` before the first real
