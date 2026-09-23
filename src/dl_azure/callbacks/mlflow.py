@@ -395,9 +395,15 @@ class AzureMlflowCallback(Callback):
             return
 
         self._log_default_artifacts()
+        run_status = (logs or {}).get("status", "completed")
+        mlflow_status = {
+            "completed": "FINISHED",
+            "failed": "FAILED",
+            "interrupted": "KILLED",
+        }.get(str(run_status), "FAILED")
         try:
             if self._owns_run:
-                mlflow.end_run()
+                mlflow.end_run(status=mlflow_status)
         finally:
             self.run = None
             self._owns_run = False

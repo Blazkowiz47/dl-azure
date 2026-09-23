@@ -191,7 +191,7 @@ def test_azure_mlflow_callback_uses_tracking_config(
             log_params=lambda *_args, **_kwargs: None,
             log_artifact=lambda *_args, **_kwargs: None,
             log_artifacts=lambda *_args, **_kwargs: None,
-            end_run=lambda: None,
+            end_run=lambda **_kwargs: None,
         ),
     )
 
@@ -352,7 +352,7 @@ def test_azure_mlflow_callback_prefers_existing_azure_run_id(
             log_params=lambda *_args, **_kwargs: None,
             log_artifact=lambda *_args, **_kwargs: None,
             log_artifacts=lambda *_args, **_kwargs: None,
-            end_run=lambda: None,
+            end_run=lambda **_kwargs: None,
         ),
     )
     monkeypatch.setenv("MLFLOW_RUN_ID", "azure-job-123")
@@ -480,7 +480,7 @@ def test_azure_mlflow_callback_uploads_full_outputs_run_dir_for_local_runs(
             log_params=lambda *_args, **_kwargs: None,
             log_artifact=lambda *_args, **_kwargs: None,
             log_artifacts=lambda path: uploads.append(Path(path)),
-            end_run=lambda: None,
+            end_run=lambda **_kwargs: None,
         ),
     )
 
@@ -497,6 +497,28 @@ def test_azure_mlflow_callback_uploads_full_outputs_run_dir_for_local_runs(
     callback.on_training_end()
 
     assert uploads == [run_dir]
+
+
+def test_azure_mlflow_callback_propagates_final_run_status(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Owned Azure MLflow runs should preserve trainer outcomes."""
+
+    statuses: list[str] = []
+    monkeypatch.setattr(
+        "dl_azure.callbacks.mlflow.mlflow",
+        SimpleNamespace(end_run=lambda status: statuses.append(status)),
+    )
+    callback = AzureMlflowCallback()
+    callback.set_trainer(_DummyTrainer())
+    callback._log_default_artifacts = lambda: None
+
+    for run_status in ["completed", "failed", "interrupted"]:
+        callback.run = SimpleNamespace()
+        callback._owns_run = True
+        callback.on_training_end({"status": run_status})
+
+    assert statuses == ["FINISHED", "FAILED", "KILLED"]
 
 
 def test_azure_mlflow_metrics_source_prefers_remote_metrics(

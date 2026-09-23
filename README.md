@@ -108,6 +108,8 @@ submission and Azure MLflow to use a different destination name, set
 `tracking.experiment_name` in your sweep config.
 Use `executor.parent_job_name` when child Azure jobs should nest under an
 existing Azure ML parent job; keep `tracking.parent_run_id` for MLflow nesting.
+Azure-owned MLflow runs close as `FINISHED`, `FAILED`, or `KILLED` according to
+the trainer's completed, failed, or interrupted terminal status.
 
 Azure submissions automatically rewrite the default local `runtime.output_dir`
 from `artifacts` to `outputs/artifacts` inside the remote job. That keeps
