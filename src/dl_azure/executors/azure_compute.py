@@ -708,179 +708,63 @@ class AzureComputeExecutor(BaseExecutor):
     def execute_runs_parallel(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int
     ) -> None:
-        """
-        Execute multiple runs in parallel using ThreadPoolExecutor.
-
-        This overrides the base class to use ThreadPoolExecutor (instead of ProcessPool)
-        for better Azure SDK compatibility.
-
-        Args:
-            run_descriptors: List of tuples (run_index, config_path)
-            max_workers: Number of parallel workers for job submission
-        """
+        """Submit Azure jobs through the shared atomic run-claim wrapper."""
         total_runs = len(run_descriptors)
-
-        config_dir = Path(run_descriptors[0][1]).parent
-        self._config_dir = config_dir
-        self.logger.info(f"Using config directory: {config_dir}")
-
-        run_lookup: Dict[int, Path] = {
-            run_index: config_path for run_index, config_path in run_descriptors
-        }
-
-        if max_workers > 1:
-            self.logger.info(
-                f"Submitting {total_runs} Azure ML jobs with {max_workers} parallel workers"
-            )
-            if self.dont_wait_for_completion:
-                self.logger.info("Jobs will be submitted without waiting")
-            else:
-                self.logger.info("Each job will wait for completion")
-
-            # Use ThreadPoolExecutor for parallel submission
-            # This allows multiple jobs to wait for completion concurrently
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all runs
-                future_to_index = {}
-                for run_index, config_path in run_descriptors:
-                    future = executor.submit(self.execute_run, run_index, config_path)
-                    future_to_index[future] = run_index
-
-                # Process completed runs
-                for future in as_completed(future_to_index):
-                    run_index = future_to_index[future]
-                    config_path = run_lookup[run_index]
-                    try:
-                        result = future.result()
-                        status = self._classify_run_result(result)
-                        tracking_run_id = result.get("tracking_run_id")
-
-                        if status == "completed":
-                            self.completed_runs.append(run_index)
-                            self._update_tracker(
-                                run_index,
-                                "completed",
-                                config_path,
-                                result=result,
-                            )
-                            self.logger.info(
-                                f"Job {run_index + 1}/{total_runs} completed successfully "
-                                f"(tracking ID: {tracking_run_id})"
-                            )
-                        elif status == "running":
-                            self.submitted_runs.append(run_index)
-                            self._update_tracker(
-                                run_index, "running", config_path, result=result
-                            )
-                            self.logger.info(
-                                f"Job {run_index + 1}/{total_runs} submitted "
-                                f"(tracking ID: {tracking_run_id})"
-                            )
-                        elif status == "unknown":
-                            self.unknown_runs.append(run_index)
-                            self._update_tracker(
-                                run_index,
-                                "unknown",
-                                config_path,
-                                result=result,
-                            )
-                            self.logger.warning(
-                                f"Job {run_index + 1}/{total_runs} status unknown - "
-                                "verify manually in Azure ML Studio "
-                                f"(tracking ID: {tracking_run_id})"
-                            )
-                        else:
-                            self.failed_runs.append(run_index)
-                            self._update_tracker(
-                                run_index,
-                                "failed",
-                                config_path,
-                                result=result,
-                            )
-                            self.logger.error(
-                                f"Job {run_index + 1}/{total_runs} failed"
-                            )
-                    except Exception as e:
-                        self.failed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "failed",
-                            config_path,
-                            error_message=str(e),
-                        )
-                        self.logger.error(
-                            f"Job {run_index + 1}/{total_runs} failed with exception: {e}"
-                        )
-        else:
-            self.logger.info(f"Submitting {total_runs} Azure ML jobs sequentially")
-            if self.dont_wait_for_completion:
-                self.logger.info("Jobs will be submitted without waiting")
-            else:
-                self.logger.info(
-                    "Will wait for each job to complete before submitting next"
+        if not run_descriptors:
+            return
+        self._config_dir = run_descriptors[0][1].parent
+        self.logger.info(
+            f"Submitting {total_runs} Azure ML jobs with {max_workers} workers"
+        )
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self._execute_single_run_wrapper, index, path): (
+                    index,
+                    path,
                 )
-
-            # Sequential execution
-            for run_index, config_path in run_descriptors:
+                for index, path in run_descriptors
+            }
+            for future in as_completed(futures):
+                run_index, config_path = futures[future]
                 try:
-                    result = self.execute_run(run_index, config_path)
-                    status = self._classify_run_result(result)
-                    tracking_run_id = result.get("tracking_run_id")
-
-                    if status == "completed":
-                        self.completed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "completed",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.info(
-                            f"Job {run_index + 1}/{total_runs} completed "
-                            f"(tracking ID: {tracking_run_id})"
-                        )
-                    elif status == "running":
-                        self.submitted_runs.append(run_index)
-                        self._update_tracker(
-                            run_index, "running", config_path, result=result
-                        )
-                        self.logger.info(
-                            f"Job {run_index + 1}/{total_runs} submitted "
-                            f"(tracking ID: {tracking_run_id})"
-                        )
-                    elif status == "unknown":
-                        self.unknown_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "unknown",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.warning(
-                            f"Job {run_index + 1}/{total_runs} status unknown - "
-                            "verify manually in Azure ML Studio "
-                            f"(tracking ID: {tracking_run_id})"
-                        )
-                    else:
-                        self.failed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "failed",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.error(
-                            f"Job {run_index + 1}/{total_runs} submission failed"
-                        )
-                except Exception as e:
-                    self.failed_runs.append(run_index)
+                    result = future.result()
+                except Exception as error:
                     self._update_tracker(
-                        run_index,
-                        "failed",
-                        config_path,
-                        error_message=str(e),
+                        run_index, "failed", config_path, error_message=str(error)
                     )
-                    self.logger.error(f"Job {run_index + 1}/{total_runs} failed: {e}")
+                    self.failed_runs.append(run_index)
+                    self.logger.error(
+                        f"Job {run_index + 1}/{total_runs} failed: {error}"
+                    )
+                    continue
+                if result.get("skipped"):
+                    self.skipped_runs.append(run_index)
+                    continue
+
+                status = self._classify_run_result(result)
+                if status not in {"completed", "running", "unknown"}:
+                    status = "failed"
+                try:
+                    self._update_tracker(run_index, status, config_path, result=result)
+                except Exception:
+                    self.logger.exception(
+                        f"Could not record accepted Azure job "
+                        f"{result.get('tracking_run_id')} for run {run_index}; "
+                        "aborting without retry"
+                    )
+                    raise
+                if status == "completed":
+                    self.completed_runs.append(run_index)
+                elif status == "running":
+                    self.submitted_runs.append(run_index)
+                elif status == "unknown":
+                    self.unknown_runs.append(run_index)
+                    self.logger.warning(
+                        f"Job {run_index + 1}/{total_runs} has unknown status "
+                        f"(tracking ID: {result.get('tracking_run_id')})"
+                    )
+                else:
+                    self.failed_runs.append(run_index)
 
     def _retry_failed_runs(
         self,
@@ -910,11 +794,6 @@ class AzureComputeExecutor(BaseExecutor):
 
             # Retry each failed run
             for run_index in runs_to_retry:
-                # Track retry attempts
-                if run_index not in self.retry_attempts:
-                    self.retry_attempts[run_index] = 0
-                self.retry_attempts[run_index] += 1
-
                 config_path = run_lookup[run_index]
                 run_name = Path(config_path).stem
 
@@ -923,62 +802,49 @@ class AzureComputeExecutor(BaseExecutor):
                 )
 
                 try:
-                    result = self.execute_run(run_index, config_path)
-                    status = self._classify_run_result(result)
-
-                    if status == "completed":
-                        self.completed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "completed",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.info(
-                            f"[RETRY {retry_attempt}] ✓ Job {run_index + 1} succeeded"
-                        )
-                    elif status == "running":
-                        self.submitted_runs.append(run_index)
-                        self._update_tracker(
-                            run_index, "running", config_path, result=result
-                        )
-                        self.logger.info(
-                            f"[RETRY {retry_attempt}] Job {run_index + 1} submitted"
-                        )
-                    elif status == "unknown":
-                        self.unknown_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "unknown",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.warning(
-                            f"[RETRY {retry_attempt}] Job {run_index + 1} status unknown - "
-                            "verify manually in Azure ML Studio"
-                        )
-                    else:
-                        self.failed_runs.append(run_index)
-                        self._update_tracker(
-                            run_index,
-                            "failed",
-                            config_path,
-                            result=result,
-                        )
-                        self.logger.error(
-                            f"[RETRY {retry_attempt}] Job {run_index + 1} failed again"
-                        )
-                except Exception as e:
-                    self.failed_runs.append(run_index)
+                    result = self._execute_single_run_wrapper(run_index, config_path)
+                except Exception as error:
                     self._update_tracker(
                         run_index,
                         "failed",
                         config_path,
-                        error_message=str(e),
+                        error_message=str(error),
                     )
+                    self.failed_runs.append(run_index)
                     self.logger.error(
-                        f"[RETRY {retry_attempt}] Job {run_index + 1} failed with exception: {e}"
+                        f"[RETRY {retry_attempt}] Job {run_index + 1} failed: {error}"
                     )
+                    continue
+                if result.get("skipped"):
+                    self.skipped_runs.append(run_index)
+                    continue
+
+                self.retry_attempts[run_index] = (
+                    self.retry_attempts.get(run_index, 0) + 1
+                )
+                status = self._classify_run_result(result)
+                if status not in {"completed", "running", "unknown"}:
+                    status = "failed"
+                try:
+                    self._update_tracker(run_index, status, config_path, result=result)
+                except Exception:
+                    self.logger.exception(
+                        f"Could not record accepted Azure job "
+                        f"{result.get('tracking_run_id')} for retry {run_index}; "
+                        "aborting without another retry"
+                    )
+                    raise
+                if status == "completed":
+                    self.completed_runs.append(run_index)
+                elif status == "running":
+                    self.submitted_runs.append(run_index)
+                elif status == "unknown":
+                    self.unknown_runs.append(run_index)
+                    self.logger.warning(
+                        f"[RETRY {retry_attempt}] Job {run_index + 1} status unknown"
+                    )
+                else:
+                    self.failed_runs.append(run_index)
 
         # Final summary
         if self.failed_runs:
@@ -990,7 +856,12 @@ class AzureComputeExecutor(BaseExecutor):
                 f"\n{len(self.unknown_runs)} jobs have unknown status - "
                 "verify manually in Azure ML Studio"
             )
-        if not self.failed_runs and not self.unknown_runs and not self.submitted_runs:
+        if (
+            not self.failed_runs
+            and not self.unknown_runs
+            and not self.submitted_runs
+            and not self.skipped_runs
+        ):
             self.logger.info(
                 f"\nAll failed jobs succeeded after retry (total attempts: {retry_attempt})"
             )

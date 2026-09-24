@@ -39,6 +39,8 @@ executor:
   - number of retry rounds for failed runs, including raised submissions
   - applies to both one-worker and parallel sweeps; running and unknown jobs
     are never retried automatically
+  - retries atomically claim failed runs so overlapping `--resume` commands do
+    not submit the same child job twice
 - `azure_config_path`
   - optional path to the Azure workspace config file
   - defaults to `azure-config.json`
@@ -69,6 +71,8 @@ parent process is a sweep orchestrator, while each child config becomes its own
 Azure job. Child jobs receive the scoped storage token when one is configured.
 The default one-worker path records accepted jobs as `running` and indeterminate
 jobs as `unknown`; `--resume` skips both until their status is reconciled.
+If tracking fails after Azure accepts a job, submission stops and logs the job
+ID for manual reconciliation instead of retrying it.
 
 When `executor.command` is set, the executor still uses the same Azure ML job
 submission flow, but swaps the child job command to the configured string.

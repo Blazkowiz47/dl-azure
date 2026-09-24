@@ -325,7 +325,9 @@ def test_sequential_submission_keeps_running_tracker_status(tmp_path: Path) -> N
     assert executor.submitted_runs == [0]
     assert executor.completed_runs == []
     assert executor.failed_runs == []
-    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 1}
+    assert all(progress[key] == expected for key, expected in {
+        "completed": 0, "failed": 0, "skipped": 0, "total": 1,
+    }.items())
     assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "running"
     assert submissions == [0]
 
@@ -410,7 +412,9 @@ def test_azure_sweep_retries_raised_submission_once(
     assert executor.retry_attempts == {0: 1}
     assert executor.failed_runs == []
     assert sorted(executor.submitted_runs) == [0, 1]
-    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 2}
+    assert all(progress[key] == expected for key, expected in {
+        "completed": 0, "failed": 0, "skipped": 0, "total": 2,
+    }.items())
     statuses = executor.tracker.get_sweep_data()["runs"]
     assert statuses["0"]["status"] == "running"
     assert statuses["1"]["status"] == "running"
@@ -436,7 +440,173 @@ def test_parallel_azure_sweep_uses_status_hook(tmp_path: Path) -> None:
 
     assert sorted(executor.unknown_runs) == [0, 1]
     assert executor.completed_runs == []
-    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 2}
+    assert all(progress[key] == expected for key, expected in {
+        "completed": 0, "failed": 0, "skipped": 0, "total": 2,
+    }.items())
+
+
+def test_parallel_azure_claim_blocks_overlapping_resume(tmp_path: Path) -> None:
+    """A second process cannot submit a claimed Azure run."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(2)]
+    for _, path in configs:
+        path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    settings = {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}}
+    first = AzureComputeExecutor(settings, "demo", "sweep-1", compute_target="cpu")
+    second = AzureComputeExecutor(
+        settings, "demo", "sweep-1", compute_target="cpu", resume=True
+    )
+    first.setup = lambda total_runs: None
+    first.teardown = lambda: None
+    calls: list[int] = []
+
+    def submit(index: int, path: Path) -> dict[str, Any]:
+        calls.append(index)
+        assert second._execute_single_run_wrapper(index, path)["skipped"] is True
+        return {"submitted": True, "tracking_run_id": f"job-{index}"}
+
+    first.execute_run = submit
+    second.execute_run = lambda index, path: pytest.fail("duplicate Azure submission")
+
+    first.run_sweep(configs, max_workers=2)
+
+    assert sorted(calls) == [0, 1]
+    assert sorted(first.submitted_runs) == [0, 1]
+
+
+def test_azure_retry_claim_blocks_overlapping_resume(tmp_path: Path) -> None:
+    """Retrying a failed job must atomically re-claim it first."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    settings = {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}}
+    first = AzureComputeExecutor(settings, "demo", "sweep-1", compute_target="cpu")
+    second = AzureComputeExecutor(
+        settings, "demo", "sweep-1", compute_target="cpu", resume=True
+    )
+    first.setup = lambda total_runs: None
+    first.teardown = lambda: None
+    calls = 0
+
+    def submit(index: int, path: Path) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary failure")
+        assert second._execute_single_run_wrapper(index, path)["skipped"] is True
+        return {"submitted": True, "tracking_run_id": "job-retry"}
+
+    first.execute_run = submit
+    second.execute_run = lambda index, path: pytest.fail("duplicate Azure retry")
+    first.retry_limit = 1
+
+    first.run_sweep([(0, config_path)], max_workers=1)
+
+    assert calls == 2
+    assert first.tracker.get_sweep_data()["runs"]["0"]["status"] == "running"
+
+
+def test_azure_retry_skips_run_claimed_by_other_process(tmp_path: Path) -> None:
+    """A stale failed list cannot resubmit a job another process claimed."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    settings = {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}}
+    executor = AzureComputeExecutor(settings, "demo", "sweep-1", compute_target="cpu")
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
+    executor.execute_run = lambda index, path: (_ for _ in ()).throw(
+        RuntimeError("submission failed")
+    )
+    executor.run_sweep([(0, config_path)], max_workers=1)
+    assert executor.tracker.try_claim_run(0, config_path=str(config_path))
+    executor.execute_run = lambda index, path: pytest.fail("duplicate Azure job")
+    executor.retry_limit = 1
+
+    executor._retry_failed_runs({0: config_path}, 1)
+
+    assert executor.skipped_runs == [0]
+    assert executor.failed_runs == []
+    assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "running"
+
+
+def test_azure_tracker_write_error_never_retries_accepted_job(tmp_path: Path) -> None:
+    """Tracker failure after Azure accepts a job must abort the sweep."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(2)]
+    for _, path in configs:
+        path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    executor = AzureComputeExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        "demo", "sweep-1", compute_target="cpu",
+    )
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
+    executor.retry_limit = 2
+    calls: list[int] = []
+    executor.execute_run = lambda index, path: (
+        calls.append(index) or {"submitted": True, "tracking_run_id": f"job-{index}"}
+    )
+    original_update = executor._update_tracker
+
+    def write(index: int, status: str, path: Path, **kwargs: Any) -> None:
+        if status == "running":
+            raise OSError("tracker disk failure")
+        original_update(index, status, path, **kwargs)
+
+    executor._update_tracker = write
+
+    with pytest.raises(OSError, match="tracker disk failure"):
+        executor.run_sweep(configs, max_workers=2)
+
+    assert sorted(calls) == [0, 1]
+    assert executor.failed_runs == []
+
+
+def test_azure_retry_tracker_write_error_aborts_without_resubmit(tmp_path: Path) -> None:
+    """A retry accepted by Azure must not enter a second retry on disk error."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    executor = AzureComputeExecutor(
+        {
+            "sweep_file": str(sweep_path),
+            "tracking": {"backend": "local"},
+            "executor": {"retry_limit": 2},
+        },
+        "demo", "sweep-1", compute_target="cpu",
+    )
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
+    attempts = 0
+
+    def submit(index: int, path: Path) -> dict[str, Any]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary failure")
+        return {"submitted": True, "tracking_run_id": "accepted-job"}
+
+    executor.execute_run = submit
+    original_update = executor._update_tracker
+
+    def write(index: int, status: str, path: Path, **kwargs: Any) -> None:
+        if status == "running" and attempts == 2:
+            raise OSError("tracker disk failure")
+        original_update(index, status, path, **kwargs)
+
+    executor._update_tracker = write
+
+    with pytest.raises(OSError, match="tracker disk failure"):
+        executor.run_sweep([(0, config_path)], max_workers=1)
+
+    assert attempts == 2
+    assert executor.retry_attempts == {0: 1}
 
 
 def test_child_job_receives_sas_but_never_storage_account_key(
