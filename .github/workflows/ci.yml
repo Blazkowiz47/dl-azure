@@ -34,6 +34,12 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --extra dev --python ${{ matrix.python-version }}
 
+      - name: Install matching dl-core source revision
+        run: >-
+          uv pip install --python .venv/bin/python --no-deps
+          --reinstall-package deep-learning-core
+          "deep-learning-core @ git+https://github.com/Blazkowiz47/dl-core.git@dcfe93939437c534c2fc9ba4fdd4db678e0274d1"
+
       - name: Confirm CPU-only PyTorch test environment
         run: >-
           uv run --no-sync python -c

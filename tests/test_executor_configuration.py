@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 import yaml
 
+from dl_core.core import BaseExecutor
+
 from dl_azure.executors.azure_compute import AzureComputeExecutor
 
 
@@ -144,6 +146,24 @@ def test_resume_context_is_used_as_parent_job_without_configured_parent() -> Non
 
     assert executor.parent_job_name == "resume-parent-job"
     assert executor.tracking_context == "resume-parent-job"
+
+
+def test_setup_rejects_old_core_before_creating_azure_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unsupported core must fail before Azure setup has side effects."""
+    monkeypatch.delattr(BaseExecutor, "_after_run_execution")
+    executor = AzureComputeExecutor(
+        sweep_config={"executor": {}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+
+    with pytest.raises(RuntimeError, match="requires matching dl-core sweep hooks"):
+        executor.setup(total_runs=1)
+
+    assert executor.parent_job_name is None
 
 
 def test_configured_parent_job_name_requires_string() -> None:
@@ -346,6 +366,77 @@ def test_default_azure_sweep_keeps_unknown_job_out_of_retry_queue(
     assert executor.unknown_runs == [0]
     assert executor.failed_runs == []
     assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "unknown"
+
+
+@pytest.mark.parametrize("max_workers", [1, 2])
+def test_azure_sweep_retries_raised_submission_once(
+    tmp_path: Path,
+    max_workers: int,
+) -> None:
+    """Failed submissions should retry exactly once in either execution mode."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(2)]
+    for _, config_path in configs:
+        config_path.write_text("runtime:\n  name: run\n", encoding="utf-8")
+    executor = AzureComputeExecutor(
+        sweep_config={
+            "sweep_file": str(sweep_path),
+            "tracking": {"backend": "local"},
+            "executor": {"retry_limit": 1},
+        },
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
+    attempts: list[int] = []
+
+    def submit(index: int, path: Path) -> dict[str, Any]:
+        attempts.append(index)
+        if index == 0 and attempts.count(0) == 1:
+            raise RuntimeError("submission rejected")
+        return {"submitted": True, "tracking_run_id": f"job-{index}"}
+
+    executor.execute_run = submit
+
+    progress = executor.run_sweep(configs, max_workers=max_workers)
+
+    assert attempts.count(0) == 2
+    assert attempts.count(1) == 1
+    if max_workers == 1:
+        assert attempts == [0, 1, 0]
+    assert executor.retry_attempts == {0: 1}
+    assert executor.failed_runs == []
+    assert sorted(executor.submitted_runs) == [0, 1]
+    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 2}
+    statuses = executor.tracker.get_sweep_data()["runs"]
+    assert statuses["0"]["status"] == "running"
+    assert statuses["1"]["status"] == "running"
+
+
+def test_parallel_azure_sweep_uses_status_hook(tmp_path: Path) -> None:
+    """Azure's parallel path must use its result classifier as well."""
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(2)]
+    for _, config_path in configs:
+        config_path.write_text("runtime:\n  name: run\n", encoding="utf-8")
+    executor = AzureComputeExecutor(
+        sweep_config={"tracking": {"backend": "local"}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
+    executor.execute_run = lambda index, path: {"success": True}
+    executor._classify_run_result = lambda result: "unknown"
+
+    progress = executor.run_sweep(configs, max_workers=2)
+
+    assert sorted(executor.unknown_runs) == [0, 1]
+    assert executor.completed_runs == []
+    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 2}
 
 
 def test_child_job_receives_sas_but_never_storage_account_key(

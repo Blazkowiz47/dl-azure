@@ -36,7 +36,9 @@ executor:
   - if `true`, submit and return without waiting for each child job
   - accepted jobs remain `running` in sweep tracking until completion is known
 - `retry_limit`
-  - number of retry rounds for failed runs
+  - number of retry rounds for failed runs, including raised submissions
+  - applies to both one-worker and parallel sweeps; running and unknown jobs
+    are never retried automatically
 - `azure_config_path`
   - optional path to the Azure workspace config file
   - defaults to `azure-config.json`

@@ -395,6 +395,16 @@ class AzureComputeExecutor(BaseExecutor):
 
     def setup(self, total_runs: int) -> None:
         """Setup Azure ML client."""
+        if not all(
+            callable(getattr(BaseExecutor, name, None))
+            for name in ("_classify_run_result", "_after_run_execution")
+        ):
+            raise RuntimeError(
+                "This dl-azure checkout requires matching dl-core sweep hooks. "
+                "Install the corresponding dl-core source revision before "
+                "submitting Azure jobs."
+            )
+
         # Determine sweep name and parent job name upfront
         sweep_file = self.sweep_config.get("sweep_file", "")
         if sweep_file:
@@ -676,7 +686,7 @@ class AzureComputeExecutor(BaseExecutor):
         runtime_config["output_dir"] = "outputs/artifacts"
 
     def _classify_run_result(self, result: Dict[str, Any]) -> str:
-        """Preserve Azure submission states in the default sequential sweep."""
+        """Preserve Azure submission states at any sweep worker count."""
         if result.get("success", False):
             return "completed"
         if result.get("submitted", False):
@@ -684,6 +694,16 @@ class AzureComputeExecutor(BaseExecutor):
         if result.get("unknown", False):
             return "unknown"
         return "failed"
+
+    def _after_run_execution(
+        self, run_descriptors: List[Tuple[int, Path]]
+    ) -> None:
+        """Retry failed Azure submissions before sweep teardown."""
+        if not run_descriptors:
+            return
+        self._config_dir = run_descriptors[0][1].parent
+        if self.retry_limit > 0 and self.failed_runs:
+            self._retry_failed_runs(dict(run_descriptors), len(run_descriptors))
 
     def execute_runs_parallel(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int
@@ -732,11 +752,10 @@ class AzureComputeExecutor(BaseExecutor):
                     config_path = run_lookup[run_index]
                     try:
                         result = future.result()
-                        success = result.get("success", False)
-                        unknown = result.get("unknown", False)
+                        status = self._classify_run_result(result)
                         tracking_run_id = result.get("tracking_run_id")
 
-                        if success:
+                        if status == "completed":
                             self.completed_runs.append(run_index)
                             self._update_tracker(
                                 run_index,
@@ -748,7 +767,7 @@ class AzureComputeExecutor(BaseExecutor):
                                 f"Job {run_index + 1}/{total_runs} completed successfully "
                                 f"(tracking ID: {tracking_run_id})"
                             )
-                        elif result.get("submitted", False):
+                        elif status == "running":
                             self.submitted_runs.append(run_index)
                             self._update_tracker(
                                 run_index, "running", config_path, result=result
@@ -757,7 +776,7 @@ class AzureComputeExecutor(BaseExecutor):
                                 f"Job {run_index + 1}/{total_runs} submitted "
                                 f"(tracking ID: {tracking_run_id})"
                             )
-                        elif unknown:
+                        elif status == "unknown":
                             self.unknown_runs.append(run_index)
                             self._update_tracker(
                                 run_index,
@@ -805,11 +824,10 @@ class AzureComputeExecutor(BaseExecutor):
             for run_index, config_path in run_descriptors:
                 try:
                     result = self.execute_run(run_index, config_path)
-                    success = result.get("success", False)
-                    unknown = result.get("unknown", False)
+                    status = self._classify_run_result(result)
                     tracking_run_id = result.get("tracking_run_id")
 
-                    if success:
+                    if status == "completed":
                         self.completed_runs.append(run_index)
                         self._update_tracker(
                             run_index,
@@ -821,7 +839,7 @@ class AzureComputeExecutor(BaseExecutor):
                             f"Job {run_index + 1}/{total_runs} completed "
                             f"(tracking ID: {tracking_run_id})"
                         )
-                    elif result.get("submitted", False):
+                    elif status == "running":
                         self.submitted_runs.append(run_index)
                         self._update_tracker(
                             run_index, "running", config_path, result=result
@@ -830,7 +848,7 @@ class AzureComputeExecutor(BaseExecutor):
                             f"Job {run_index + 1}/{total_runs} submitted "
                             f"(tracking ID: {tracking_run_id})"
                         )
-                    elif unknown:
+                    elif status == "unknown":
                         self.unknown_runs.append(run_index)
                         self._update_tracker(
                             run_index,
@@ -864,14 +882,9 @@ class AzureComputeExecutor(BaseExecutor):
                     )
                     self.logger.error(f"Job {run_index + 1}/{total_runs} failed: {e}")
 
-        # Retry failed runs if retry_limit > 0
-        if self.retry_limit > 0 and self.failed_runs:
-            self._retry_failed_runs(run_lookup, config_dir, total_runs)
-
     def _retry_failed_runs(
         self,
         run_lookup: Dict[int, Path],
-        config_dir: Path,
         original_total: int,
     ) -> None:
         """
@@ -879,7 +892,6 @@ class AzureComputeExecutor(BaseExecutor):
 
         Args:
             run_lookup: Mapping from run index to config path
-            config_dir: Directory containing config files
             original_total: Original total number of runs
         """
         for retry_attempt in range(1, self.retry_limit + 1):
@@ -912,10 +924,9 @@ class AzureComputeExecutor(BaseExecutor):
 
                 try:
                     result = self.execute_run(run_index, config_path)
-                    success = result.get("success", False)
-                    unknown = result.get("unknown", False)
+                    status = self._classify_run_result(result)
 
-                    if success:
+                    if status == "completed":
                         self.completed_runs.append(run_index)
                         self._update_tracker(
                             run_index,
@@ -926,7 +937,7 @@ class AzureComputeExecutor(BaseExecutor):
                         self.logger.info(
                             f"[RETRY {retry_attempt}] ✓ Job {run_index + 1} succeeded"
                         )
-                    elif result.get("submitted", False):
+                    elif status == "running":
                         self.submitted_runs.append(run_index)
                         self._update_tracker(
                             run_index, "running", config_path, result=result
@@ -934,7 +945,7 @@ class AzureComputeExecutor(BaseExecutor):
                         self.logger.info(
                             f"[RETRY {retry_attempt}] Job {run_index + 1} submitted"
                         )
-                    elif unknown:
+                    elif status == "unknown":
                         self.unknown_runs.append(run_index)
                         self._update_tracker(
                             run_index,
