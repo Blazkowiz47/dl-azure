@@ -46,7 +46,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-deep-learning-core = { git = "https://github.com/Blazkowiz47/dl-core.git", rev = "e012fb9e784c389b134e46dff73f5dfcc13c4028" }
+deep-learning-core = { git = "https://github.com/Blazkowiz47/dl-core.git", rev = "158174850023906398a75178a0e22b2d702354f4" }
 torch = [{ index = "pytorch-cpu", extra = "dev", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" }]
 
 [[tool.uv.index]]
