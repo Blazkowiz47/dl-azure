@@ -716,14 +716,15 @@ class AzureComputeExecutor(BaseExecutor):
         self.logger.info(
             f"Submitting {total_runs} Azure ML jobs with {max_workers} workers"
         )
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(self._execute_single_run_wrapper, index, path): (
-                    index,
-                    path,
-                )
-                for index, path in run_descriptors
-            }
+        pool = ThreadPoolExecutor(max_workers=max_workers)
+        futures = {}
+        pending = set()
+        aborted = False
+        try:
+            for index, path in run_descriptors:
+                future = pool.submit(self._execute_single_run_wrapper, index, path)
+                futures[future] = (index, path)
+                pending.add(future)
             for future in as_completed(futures):
                 run_index, config_path = futures[future]
                 try:
@@ -736,9 +737,11 @@ class AzureComputeExecutor(BaseExecutor):
                     self.logger.error(
                         f"Job {run_index + 1}/{total_runs} failed: {error}"
                     )
+                    pending.discard(future)
                     continue
                 if result.get("skipped"):
                     self.skipped_runs.append(run_index)
+                    pending.discard(future)
                     continue
 
                 status = self._classify_run_result(result)
@@ -765,6 +768,29 @@ class AzureComputeExecutor(BaseExecutor):
                     )
                 else:
                     self.failed_runs.append(run_index)
+                pending.discard(future)
+        except KeyboardInterrupt:
+            aborted = True
+            for future in pending:
+                future.cancel()
+            pool.shutdown(wait=False, cancel_futures=True)
+            for future in pending:
+                if not future.cancelled():
+                    run_index, config_path = futures[future]
+                    self._update_tracker(
+                        run_index,
+                        "unknown",
+                        config_path,
+                        error_message="Interrupted while Azure job may be active",
+                    )
+            raise
+        except Exception:
+            aborted = True
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        finally:
+            if not aborted:
+                pool.shutdown(wait=True)
 
     def _retry_failed_runs(
         self,
@@ -803,6 +829,15 @@ class AzureComputeExecutor(BaseExecutor):
 
                 try:
                     result = self._execute_single_run_wrapper(run_index, config_path)
+                except KeyboardInterrupt:
+                    self._update_tracker(
+                        run_index,
+                        "unknown",
+                        config_path,
+                        error_message="Interrupted while Azure job may be active",
+                    )
+                    self.unknown_runs.append(run_index)
+                    raise
                 except Exception as error:
                     self._update_tracker(
                         run_index,

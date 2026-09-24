@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 from typing import Any
 
@@ -370,6 +371,14 @@ def test_default_azure_sweep_keeps_unknown_job_out_of_retry_queue(
     assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "unknown"
 
 
+def test_azure_interrupt_policy_keeps_ambiguous_job_unknown() -> None:
+    """A cancelled Azure submission must not be offered to --resume."""
+    executor = AzureComputeExecutor(
+        {"executor": {}}, "demo", "sweep-1", compute_target="cpu"
+    )
+    assert executor._classify_run_result({"unknown": True}) == "unknown"
+
+
 @pytest.mark.parametrize("max_workers", [1, 2])
 def test_azure_sweep_retries_raised_submission_once(
     tmp_path: Path,
@@ -563,7 +572,7 @@ def test_azure_tracker_write_error_never_retries_accepted_job(tmp_path: Path) ->
     with pytest.raises(OSError, match="tracker disk failure"):
         executor.run_sweep(configs, max_workers=2)
 
-    assert sorted(calls) == [0, 1]
+    assert calls and len(calls) == len(set(calls))
     assert executor.failed_runs == []
 
 
@@ -607,6 +616,69 @@ def test_azure_retry_tracker_write_error_aborts_without_resubmit(tmp_path: Path)
 
     assert attempts == 2
     assert executor.retry_attempts == {0: 1}
+
+
+def test_azure_interrupted_retry_is_not_resubmitted(tmp_path: Path) -> None:
+    """Ctrl+C during a retry must leave the Azure job non-claimable."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: demo\n", encoding="utf-8")
+    executor = AzureComputeExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        "demo", "sweep-1", compute_target="cpu",
+    )
+    executor.tracker.initialize_sweep(total_runs=1, user="tester")
+    executor.tracker.update_run_status(0, "failed")
+    executor.failed_runs = [0]
+    executor.retry_limit = 1
+    executor.execute_run = lambda index, path: (_ for _ in ()).throw(
+        KeyboardInterrupt()
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        executor._retry_failed_runs({0: config_path}, 1)
+
+    assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "unknown"
+    assert not executor.tracker.try_claim_run(0, config_path=str(config_path))
+
+
+def test_azure_parallel_interrupt_cancels_queued_jobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Started jobs become unknown while unstarted jobs remain pending."""
+    started = threading.Event()
+    release = threading.Event()
+
+    def interrupt(futures: Any) -> Any:
+        assert started.wait(5)
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("dl_azure.executors.azure_compute.as_completed", interrupt)
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(3)]
+    executor = AzureComputeExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        "demo", "sweep-1", compute_target="cpu",
+    )
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
+
+    def submit(index: int, path: Path) -> dict[str, Any]:
+        started.set()
+        release.wait(10)
+        return {"submitted": True, "tracking_run_id": f"job-{index}"}
+
+    executor.execute_run = submit
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            executor.run_sweep(configs, max_workers=2)
+        statuses = executor.tracker.get_sweep_data()["runs"]
+        assert statuses["0"]["status"] == "unknown"
+        assert statuses["2"]["status"] == "pending"
+    finally:
+        release.set()
 
 
 def test_child_job_receives_sas_but_never_storage_account_key(

@@ -69,8 +69,10 @@ The executor also reads:
 The executor submits each generated sweep run as an Azure ML command job. The
 parent process is a sweep orchestrator, while each child config becomes its own
 Azure job. Child jobs receive the scoped storage token when one is configured.
-The default one-worker path records accepted jobs as `running` and indeterminate
-jobs as `unknown`; `--resume` skips both until their status is reconciled.
+The executor records accepted jobs as `running` and indeterminate jobs as
+`unknown`; `--resume` skips both until their status is reconciled.
+Ctrl+C also leaves an ambiguous Azure submission `unknown`, and parallel sweeps
+cancel jobs that have not started.
 If tracking fails after Azure accepts a job, submission stops and logs the job
 ID for manual reconciliation instead of retrying it.
 
