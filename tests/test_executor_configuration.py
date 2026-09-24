@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future
 import os
 from pathlib import Path
 import threading
@@ -745,6 +746,55 @@ def test_azure_parallel_interrupt_cancels_queued_jobs(
         assert statuses["2"]["status"] == "pending"
     finally:
         release.set()
+
+
+def test_azure_parallel_interrupt_preserves_finished_and_skipped_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupt must keep finished results and another process's claim."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    configs = [(index, tmp_path / f"run-{index}.yaml") for index in range(3)]
+    executor = AzureComputeExecutor(
+        {"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        "demo", "sweep-1", compute_target="cpu",
+    )
+    executor.tracker.initialize_sweep(total_runs=3, user="tester")
+    executor.tracker.update_run_status(1, "completed", tracking_run_id="other-job")
+
+    class FakePool:
+        def submit(self, fn: Any, index: int, path: Path) -> Future[Any]:
+            future: Future[Any] = Future()
+            if index == 0:
+                future.set_result({"submitted": True, "tracking_run_id": "job-0"})
+            elif index == 1:
+                future.set_result({"skipped": True})
+            else:
+                executor.tracker.try_claim_run(index)
+                future.set_running_or_notify_cancel()
+            return future
+
+        def shutdown(self, **kwargs: Any) -> None:
+            pass
+
+    def interrupt(futures: Any) -> Any:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        "dl_azure.executors.azure_compute.ThreadPoolExecutor",
+        lambda max_workers: FakePool(),
+    )
+    monkeypatch.setattr("dl_azure.executors.azure_compute.as_completed", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        executor.execute_runs_parallel(configs, max_workers=2)
+
+    rows = executor.tracker.get_sweep_data()["runs"]
+    assert rows["0"]["status"] == "running"
+    assert rows["0"]["tracking_run_id"] == "job-0"
+    assert rows["1"]["status"] == "completed"
+    assert rows["1"]["tracking_run_id"] == "other-job"
+    assert rows["2"]["status"] == "unknown"
 
 
 def test_child_job_receives_sas_but_never_storage_account_key(

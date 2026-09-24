@@ -778,14 +778,36 @@ class AzureComputeExecutor(BaseExecutor):
                 future.cancel()
             pool.shutdown(wait=False, cancel_futures=True)
             for future in pending:
-                if not future.cancelled():
-                    run_index, config_path = futures[future]
-                    self._update_tracker(
-                        run_index,
-                        "unknown",
-                        config_path,
-                        error_message="Interrupted while Azure job may be active",
+                if future.cancelled():
+                    continue
+                run_index, config_path = futures[future]
+                if future.done():
+                    try:
+                        result = future.result()
+                    except BaseException as error:
+                        self._update_tracker(
+                            run_index, "unknown", config_path, error_message=str(error)
+                        )
+                        continue
+                    if result.get("skipped"):
+                        continue
+                    status = self._classify_run_result(result)
+                    if status not in {"completed", "running", "unknown"}:
+                        status = "failed"
+                    self._update_tracker(run_index, status, config_path, result=result)
+                    continue
+                if self.tracker is not None:
+                    run_data = self.tracker.get_sweep_data().get("runs", {}).get(
+                        str(run_index), {}
                     )
+                    if run_data.get("status") != "running":
+                        continue
+                self._update_tracker(
+                    run_index,
+                    "unknown",
+                    config_path,
+                    error_message="Interrupted while Azure job may be active",
+                )
             raise
         except Exception:
             aborted = True
