@@ -65,6 +65,8 @@ The executor also reads:
 The executor submits each generated sweep run as an Azure ML command job. The
 parent process is a sweep orchestrator, while each child config becomes its own
 Azure job. Child jobs receive the scoped storage token when one is configured.
+The default one-worker path records accepted jobs as `running` and indeterminate
+jobs as `unknown`; `--resume` skips both until their status is reconciled.
 
 When `executor.command` is set, the executor still uses the same Azure ML job
 submission flow, but swaps the child job command to the configured string.

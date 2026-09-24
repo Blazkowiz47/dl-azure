@@ -46,11 +46,16 @@ class AzureClientService:
 
         configured_account = os.environ.get("AZURE_STORAGE_ACCOUNT")
         if configured_account and configured_account != self.account_name:
-            raise ValueError(
-                "AZURE_STORAGE_ACCOUNT does not match the configured account_name"
+            logger.info(
+                "Job storage credentials are for %s; using managed identity for %s",
+                configured_account,
+                self.account_name,
             )
-        self._sas_token = os.environ.get("AZURE_SAS_TOKEN", "").lstrip("?")
-        self._access_key = os.environ.get("AZURE_ACCESS_KEY")
+            self._sas_token = ""
+            self._access_key = None
+        else:
+            self._sas_token = os.environ.get("AZURE_SAS_TOKEN", "").lstrip("?")
+            self._access_key = os.environ.get("AZURE_ACCESS_KEY")
         if self._sas_token:
             self.credential = self._sas_token
         elif self._access_key:

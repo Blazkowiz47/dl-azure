@@ -161,7 +161,6 @@ class AzureComputeExecutor(BaseExecutor):
         self.env_vars: Dict[str, str] = {}  # Environment variables for jobs
         self.azure_config: Dict[str, Any] = {}  # Azure config (loaded in setup)
         self.retry_attempts: Dict[int, int] = {}  # Track retry attempts per run index
-        self.submitted_runs: List[int] = []  # Accepted jobs not yet completed
 
     def _resolve_configured_parent_job_name(self) -> Optional[str]:
         """Return the explicit Azure parent job configured for this executor."""
@@ -675,6 +674,16 @@ class AzureComputeExecutor(BaseExecutor):
             return
 
         runtime_config["output_dir"] = "outputs/artifacts"
+
+    def _classify_run_result(self, result: Dict[str, Any]) -> str:
+        """Preserve Azure submission states in the default sequential sweep."""
+        if result.get("success", False):
+            return "completed"
+        if result.get("submitted", False):
+            return "running"
+        if result.get("unknown", False):
+            return "unknown"
+        return "failed"
 
     def execute_runs_parallel(
         self, run_descriptors: List[Tuple[int, Path]], max_workers: int

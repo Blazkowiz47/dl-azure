@@ -69,6 +69,8 @@ The installed package registers its runtime components through dl-core's
 extension entry points. `dl-init --with-azure` also prepares the experiment
 scaffold, selects `executors.azure` in the example sweep, and creates
 `azure-config.json`.
+When adding Azure wiring to an existing project, `dl-init` preserves its
+dataset modules. Add project-specific Azure dataset wrappers there if needed.
 
 The Azure executor is sweep-oriented. Use
 `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` before the first real
@@ -181,6 +183,9 @@ dataset config.
 `DefaultAzureCredential`; it never silently returns an unsigned URL. The active
 identity therefore needs permission to request a user delegation key and the
 required Blob Data role for the requested operation.
+If a child job's dataset uses a different storage account from its job SAS,
+the client uses managed identity for that dataset instead of the other account's
+token; grant the job identity access to the dataset account.
 
 Frame wrappers share a few image-specific settings:
 

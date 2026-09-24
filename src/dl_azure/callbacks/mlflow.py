@@ -244,9 +244,13 @@ class AzureMlflowCallback(Callback):
             return
 
         self._log_artifact_if_exists(run_dir / "config.yaml", None)
-        self._log_artifact_if_exists(run_dir / "run_info.json", None)
-        self._log_artifact_if_exists(run_dir / "metrics" / "summary.json", "metrics")
-        self._log_artifact_if_exists(run_dir / "metrics" / "history.json", "metrics")
+        self._log_artifact_if_exists(run_dir / "final" / "run_info.json", "final")
+        self._log_artifact_if_exists(
+            run_dir / "final" / "metrics" / "summary.json", "final/metrics"
+        )
+        self._log_artifact_if_exists(
+            run_dir / "final" / "metrics" / "history.json", "final/metrics"
+        )
 
     def _write_run_id_file(self) -> None:
         """Persist the active run id for sweep bookkeeping when requested."""

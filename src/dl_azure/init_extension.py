@@ -376,18 +376,29 @@ class AzureInitExtension(InitExtension):
         )
         dataset_module = context.project.dataset_name
         class_stem = context.project.dataset_class_name.removesuffix("Dataset")
-        context.set_file(
-            Path("src") / "datasets" / "__init__.py",
-            _azure_dataset_init(
-                dataset_module,
-                f"{class_stem}AzureComputeWrapper",
-                f"{class_stem}StreamingAzureWrapper",
-            ),
-        )
-        context.set_file(
-            Path("src") / "datasets" / f"{dataset_module}.py",
-            _azure_dataset_template(
-                context.project.dataset_name,
-                class_stem,
-            ),
-        )
+        dataset_init = Path("src") / "datasets" / "__init__.py"
+        dataset_file = Path("src") / "datasets" / f"{dataset_module}.py"
+        if any(
+            (context.target_dir / path).is_file()
+            for path in (dataset_init, dataset_file)
+        ):
+            context.append_readme_note(
+                "Existing dataset files were preserved. Add Azure dataset wrappers "
+                "to your project manually if you need mounted or streaming data."
+            )
+        else:
+            context.set_file(
+                dataset_init,
+                _azure_dataset_init(
+                    dataset_module,
+                    f"{class_stem}AzureComputeWrapper",
+                    f"{class_stem}StreamingAzureWrapper",
+                ),
+            )
+            context.set_file(
+                dataset_file,
+                _azure_dataset_template(
+                    context.project.dataset_name,
+                    class_stem,
+                ),
+            )

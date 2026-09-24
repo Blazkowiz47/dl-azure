@@ -275,11 +275,16 @@ def test_execute_run_classifies_azure_status_without_false_completion(
 
 
 def test_sequential_submission_keeps_running_tracker_status(tmp_path: Path) -> None:
-    """The default sequential path must not record accepted jobs as complete."""
+    """The default sweep entry point must keep submitted jobs running."""
     config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: run\n", encoding="utf-8")
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
     executor = AzureComputeExecutor(
         sweep_config={
-            "executor": {"dont_wait_for_completion": True, "retry_limit": 2}
+            "sweep_file": str(sweep_path),
+            "tracking": {"backend": "local"},
+            "executor": {"dont_wait_for_completion": True, "retry_limit": 2},
         },
         experiment_name="demo",
         sweep_id="sweep-1",
@@ -292,18 +297,55 @@ def test_sequential_submission_keeps_running_tracker_status(tmp_path: Path) -> N
         return {"submitted": True, "tracking_run_id": "job-1"}
 
     executor.execute_run = submit
-    statuses: list[str] = []
-    executor._update_tracker = (
-        lambda index, status, path, result=None: statuses.append(status)
-    )
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
 
-    executor.execute_runs_parallel([(0, config_path)], max_workers=1)
+    progress = executor.run_sweep([(0, config_path)], max_workers=1)
 
     assert executor.submitted_runs == [0]
     assert executor.completed_runs == []
     assert executor.failed_runs == []
-    assert statuses == ["running"]
+    assert progress == {"completed": 0, "failed": 0, "skipped": 0, "total": 1}
+    assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "running"
     assert submissions == [0]
+
+    resumed = AzureComputeExecutor(
+        sweep_config=executor.sweep_config,
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+        resume=True,
+    )
+    resumed.setup = lambda total_runs: None
+    resumed.teardown = lambda: None
+    resumed.execute_run = lambda index, path: pytest.fail("running job resubmitted")
+    resumed.run_sweep([(0, config_path)], max_workers=1)
+    assert resumed.skipped_runs == [0]
+
+
+def test_default_azure_sweep_keeps_unknown_job_out_of_retry_queue(
+    tmp_path: Path,
+) -> None:
+    """An indeterminate Azure submission must not become a failed run."""
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text("runtime:\n  name: run\n", encoding="utf-8")
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: run.yaml\n", encoding="utf-8")
+    executor = AzureComputeExecutor(
+        sweep_config={"sweep_file": str(sweep_path), "tracking": {"backend": "local"}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+    )
+    executor.setup = lambda total_runs: None
+    executor.teardown = lambda: None
+    executor.execute_run = lambda index, path: {"unknown": True, "tracking_run_id": "job-1"}
+
+    executor.run_sweep([(0, config_path)], max_workers=1)
+
+    assert executor.unknown_runs == [0]
+    assert executor.failed_runs == []
+    assert executor.tracker.get_sweep_data()["runs"]["0"]["status"] == "unknown"
 
 
 def test_child_job_receives_sas_but_never_storage_account_key(

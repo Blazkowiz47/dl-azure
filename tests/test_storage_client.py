@@ -95,13 +95,21 @@ def test_job_sas_token_is_used_for_blob_urls(monkeypatch: MonkeyPatch) -> None:
         client.get_blob_sas_url("images", "sample.jpg", permissions="rw")
 
 
-def test_job_sas_token_rejects_account_mismatch(monkeypatch: MonkeyPatch) -> None:
-    """A token for another storage account must not be used by this client."""
+def test_job_sas_token_uses_identity_for_another_account(monkeypatch: MonkeyPatch) -> None:
+    """A dataset in another account must not receive the job account's SAS."""
     monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "anotheraccount")
     monkeypatch.setenv("AZURE_SAS_TOKEN", "sig=secret")
+    monkeypatch.setenv("AZURE_ACCESS_KEY", "wrong-account-key")
+    monkeypatch.setattr(
+        "dl_azure.storage.client.DefaultAzureCredential",
+        lambda: "identity-credential",
+    )
 
-    with pytest.raises(ValueError, match="does not match"):
-        AzureClientService({"account_name": "demoaccount"})
+    client = AzureClientService({"account_name": "demoaccount"})
+
+    assert client.credential == "identity-credential"
+    assert client._sas_token == ""
+    assert client._access_key is None
 
 
 def test_access_key_generates_blob_sas_without_delegation(

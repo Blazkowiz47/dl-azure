@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from dl_core.init_experiment import create_experiment_scaffold
 from dl_core.init_extensions import ProjectNames, ScaffoldContext
 
 from dl_azure.init_extension import (
@@ -218,3 +219,39 @@ def test_azure_init_extension_merges_existing_azure_config(tmp_path: Path) -> No
     assert '"workspace_name": "existing-workspace"' in rendered
     assert '"subscription_id": "<subscription-id>"' in rendered
     assert '"account_name": "<storage-account-name>"' in rendered
+
+
+def test_azure_in_place_init_preserves_dataset_files_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    """Azure wiring should not replace an existing project's dataset code."""
+    target = tmp_path / "demo"
+    dataset_dir = target / "src" / "datasets"
+    dataset_dir.mkdir(parents=True)
+    dataset_file = dataset_dir / "demo.py"
+    dataset_init = dataset_dir / "__init__.py"
+    dataset_file.write_text("# user dataset\n", encoding="utf-8")
+    dataset_init.write_text("# user exports\n", encoding="utf-8")
+
+    def initialize() -> None:
+        create_experiment_scaffold(
+            root_dir=str(target),
+            enabled_extensions={"azure"},
+            discovered_extensions={"azure": AzureInitExtension()},
+        )
+
+    initialize()
+    paths = [
+        target / "pyproject.toml",
+        target / "README.md",
+        target / "configs" / "base.yaml",
+        target / "configs" / "base_sweep.yaml",
+        target / "experiments" / "lr_sweep.yaml",
+    ]
+    first_pass = {path: path.read_bytes() for path in paths}
+    initialize()
+
+    assert dataset_file.read_text(encoding="utf-8") == "# user dataset\n"
+    assert dataset_init.read_text(encoding="utf-8") == "# user exports\n"
+    assert "Existing dataset files were preserved" in (target / "README.md").read_text()
+    assert all(path.read_bytes() == first_pass[path] for path in paths)

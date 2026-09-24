@@ -511,6 +511,50 @@ def test_azure_mlflow_callback_uploads_full_outputs_run_dir_for_local_runs(
     assert uploads == [run_dir]
 
 
+def test_azure_mlflow_fallback_uploads_final_artifact_paths(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Local fallback uploads should use the artifact manager's final tree."""
+    monkeypatch.delenv("MLFLOW_RUN_ID", raising=False)
+    monkeypatch.delenv("AZUREML_RUN_ID", raising=False)
+    run_dir = tmp_path / "artifacts" / "runs" / "demo-run"
+    metrics_dir = run_dir / "final" / "metrics"
+    metrics_dir.mkdir(parents=True)
+    for path in (
+        run_dir / "config.yaml",
+        run_dir / "final" / "run_info.json",
+        metrics_dir / "summary.json",
+        metrics_dir / "history.json",
+    ):
+        path.write_text("{}", encoding="utf-8")
+    uploads: list[tuple[Path, str | None]] = []
+    monkeypatch.setattr(
+        "dl_azure.callbacks.mlflow.mlflow",
+        SimpleNamespace(
+            log_artifact=lambda path, artifact_path=None: uploads.append(
+                (Path(path), artifact_path)
+            )
+        ),
+    )
+    trainer = _DummyTrainer()
+    trainer.artifact_manager = SimpleNamespace(
+        run_dir=run_dir,
+        output_dir=tmp_path / "artifacts",
+    )
+    callback = AzureMlflowCallback()
+    callback.set_trainer(trainer)
+
+    callback._log_default_artifacts()
+
+    assert uploads == [
+        (run_dir / "config.yaml", None),
+        (run_dir / "final" / "run_info.json", "final"),
+        (metrics_dir / "summary.json", "final/metrics"),
+        (metrics_dir / "history.json", "final/metrics"),
+    ]
+
+
 def test_azure_mlflow_callback_propagates_final_run_status(
     monkeypatch: MonkeyPatch,
 ) -> None:
