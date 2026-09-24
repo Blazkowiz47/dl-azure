@@ -3,6 +3,21 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## 0.0.24
+
+- Azure sweep submissions are claimed consistently, retries preserve
+  indeterminate jobs, and interrupted parallel sweeps keep completed results
+- child jobs use scoped storage credentials; in-place scaffolding preserves
+  existing dataset files and face-crop caches include crop settings
+- requires released `deep-learning-core>=0.1.8,<0.2` for sweep status hooks
+- development PyTorch requirement is `torch>2.3` without an upper cap
+
+## 0.0.23
+
+- streaming tar downloads retry transient whole-shard failures with backoff
+- shard caches use atomic writes, process-safe locks, and content checks
+- tar cache capacity uses `cache_size_gb` with a 3000 GB default
+
 ## 0.0.22
 
 - Azure tar wrappers provide mounted paths or authenticated blob URLs to the

@@ -3,16 +3,16 @@
 This documentation covers the Azure adapter layer that sits on top of
 `dl-core`.
 
-Current public release: `deep-learning-azure==0.0.23`, requiring
-`deep-learning-core>=0.1.5,<0.2`.
+Current public release: `deep-learning-azure==0.0.24`, requiring
+`deep-learning-core>=0.1.8,<0.2`.
 
-## What's New in 0.0.23?
+## What's New in 0.0.24?
 
-- Azure streaming tar downloads retry transient whole-shard failures with
-  exponential backoff and clean partial files before each attempt
-- process-safe shard locks prevent DataLoader workers and distributed ranks on
-  the same host from downloading the same shard concurrently
-- tar cache capacity uses `cache_size_gb`, defaulting to 3000 GB when enabled
+- default and parallel sweeps retain accepted, running, and unknown Azure job
+  states, including on interruption
+- child-job storage access uses scoped credentials, and scaffold updates keep
+  existing dataset files
+- dl-core 0.1.8 is the supported minimum for these sweep behaviors
 
 - [Release History](../RELEASES.md)
 

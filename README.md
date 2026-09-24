@@ -5,18 +5,17 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.23`.
-Requires `deep-learning-core>=0.1.5,<0.2`.
+Current release: `deep-learning-azure==0.0.24`.
+Requires `deep-learning-core>=0.1.8,<0.2`.
 
-## What's New in 0.0.23?
+## What's New in 0.0.24?
 
-- Azure streaming tar shards now use whole-download retries with exponential
-  backoff for transient timeouts, connection failures, HTTP 408/429, and 5xx
-  responses
-- shard downloads use atomic temporary files, process-safe per-shard locks,
-  fresh Azure clients per attempt, and ETag, size, Azure content, and tar checks
-- Azure tar cache capacity is configured with `cache_size_gb` and defaults to
-  3000 GB when caching is enabled
+- Azure sweeps preserve accepted and indeterminate job states across default
+  and parallel execution, including interrupted submissions
+- child jobs receive scoped storage access without forwarding the account key
+- scaffold updates keep existing dataset files and support in-place setup
+- the package uses the released dl-core 0.1.8 sweep hooks; its development
+  PyTorch requirement is `torch>2.3` without an upper cap
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
