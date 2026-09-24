@@ -167,6 +167,17 @@ def test_setup_rejects_old_core_before_creating_azure_jobs(
     assert executor.parent_job_name is None
 
 
+def test_azure_executor_reads_compute_target_from_config() -> None:
+    """The base executor constructor is sufficient for an Azure sweep."""
+    executor = AzureComputeExecutor(
+        {"executor": {"compute_target": "gpu-cluster", "environment_name": "env"}},
+        "demo", "sweep-1",
+    )
+
+    assert executor.compute_target == "gpu-cluster"
+    assert executor.environment_name == "env"
+
+
 def test_configured_parent_job_name_requires_string() -> None:
     """Azure parent job config should fail fast on invalid types."""
     with pytest.raises(TypeError, match=r"executor\.parent_job_name"):
