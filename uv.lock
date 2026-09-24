@@ -830,7 +830,7 @@ requires-dist = [
     { name = "azure-identity", specifier = "==1.25.1" },
     { name = "azure-storage-blob", specifier = "==12.19.0" },
     { name = "azureml-mlflow", specifier = "==1.60.0.post1" },
-    { name = "deep-learning-core", git = "https://github.com/Blazkowiz47/dl-core.git?rev=8451f3669ac9d9bc1e5dbfcecc91dfb5604cda95" },
+    { name = "deep-learning-core", git = "https://github.com/Blazkowiz47/dl-core.git?rev=2c193051b90ecdf2ddb66b1a5d99dd413992f6a2" },
     { name = "filelock", specifier = ">=3,<4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
@@ -846,7 +846,7 @@ provides-extras = ["webdataset", "dev"]
 [[package]]
 name = "deep-learning-core"
 version = "0.1.7"
-source = { git = "https://github.com/Blazkowiz47/dl-core.git?rev=8451f3669ac9d9bc1e5dbfcecc91dfb5604cda95#8451f3669ac9d9bc1e5dbfcecc91dfb5604cda95" }
+source = { git = "https://github.com/Blazkowiz47/dl-core.git?rev=2c193051b90ecdf2ddb66b1a5d99dd413992f6a2#2c193051b90ecdf2ddb66b1a5d99dd413992f6a2" }
 dependencies = [
     { name = "albumentations" },
     { name = "gymnasium" },
