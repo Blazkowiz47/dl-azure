@@ -12,6 +12,7 @@ import pytest
 import yaml
 
 from dl_core.core import BaseExecutor
+from dl_core.sweep import runner
 
 from dl_azure.executors.azure_compute import AzureComputeExecutor
 
@@ -176,6 +177,60 @@ def test_azure_executor_reads_compute_target_from_config() -> None:
 
     assert executor.compute_target == "gpu-cluster"
     assert executor.environment_name == "env"
+
+
+def test_azure_executor_legacy_kwargs_override_config() -> None:
+    """Older runners pass CLI overrides as constructor keywords."""
+    executor = AzureComputeExecutor(
+        {"executor": {"compute_target": "configured", "environment_name": "config-env"}},
+        "demo", "sweep-1",
+        compute_target="cli-target", environment_name="cli-env",
+    )
+
+    assert executor.compute_target == "cli-target"
+    assert executor.environment_name == "cli-env"
+
+
+def test_sweep_runner_constructs_azure_executor_without_submission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real runner should pass the Azure target through executor setup."""
+    sweep_path = tmp_path / "sweep.yaml"
+    sweep_path.write_text("base_config: base.yaml\n", encoding="utf-8")
+    base_path = tmp_path / "base.yaml"
+    base_path.write_text("runtime: {}\n", encoding="utf-8")
+    observed: dict[str, str] = {}
+
+    def run_sweep(
+        self: AzureComputeExecutor, descriptors: list[tuple[int, Path]], max_workers: int
+    ) -> dict[str, int]:
+        observed["compute_target"] = self.compute_target
+        observed["environment_name"] = self.environment_name
+        return {"completed": len(descriptors), "failed": 0, "running": 0, "unknown": 0}
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dl-sweep", str(sweep_path), "--compute", "cli-target", "--environment", "cli-env"],
+    )
+    monkeypatch.setattr(runner, "setup_logging", lambda level: None)
+    monkeypatch.setattr(runner, "load_builtin_components", lambda: None)
+    monkeypatch.setattr(runner, "load_local_components", lambda path: None)
+    monkeypatch.setattr(
+        runner,
+        "load_user_sweep",
+        lambda path: {
+            "base_config": str(base_path),
+            "executor": {
+                "name": "azure",
+                "compute_target": "configured",
+                "environment_name": "config-env",
+            },
+        },
+    )
+    monkeypatch.setattr(AzureComputeExecutor, "run_sweep", run_sweep)
+
+    assert runner.main() == 0
+    assert observed == {"compute_target": "cli-target", "environment_name": "cli-env"}
 
 
 def test_configured_parent_job_name_requires_string() -> None:

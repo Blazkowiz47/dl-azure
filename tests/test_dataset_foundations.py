@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+
+import numpy as np
 
 from dl_azure.datasets.base import (
     AzureComputeMultiFrameWrapper,
@@ -151,3 +154,32 @@ def test_multiframe_wrapper_builds_consecutive_samples() -> None:
         "frames/frame_004.png",
         "frames/frame_005.png",
     )
+
+
+def test_processed_frame_cache_isolated_by_margin_and_size() -> None:
+    """Changing crop settings must not reuse images from another configuration."""
+    images: dict[str, np.ndarray] = {}
+    cache = SimpleNamespace(
+        get_cached_image=images.get,
+        cache_image_async=lambda key, image: images.__setitem__(key, image),
+    )
+    wrappers = [
+        DummyMultiFrameWrapper({
+            "root_dir": ".",
+            "face_detected_and_resized_cache": True,
+            "margin": margin,
+            "resize_height": size,
+            "resize_width": size,
+        })
+        for margin, size in [(0, 64), (25, 64), (25, 128)]
+    ]
+    for wrapper in wrappers:
+        wrapper.cache = cache
+
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    wrappers[0]._maybe_store_resized_cache("frame.jpg", image)
+    assert wrappers[0]._maybe_load_resized_cache("frame.jpg") is image
+    assert wrappers[1]._maybe_load_resized_cache("frame.jpg") is None
+    wrappers[1]._maybe_store_resized_cache("frame.jpg", image)
+    assert wrappers[2]._maybe_load_resized_cache("frame.jpg") is None
+    assert len(images) == 2

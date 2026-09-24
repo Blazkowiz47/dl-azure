@@ -57,7 +57,8 @@ still disable caching for selected splits without changing wrapper code.
 
 Frame wrappers also support `face_detected_and_resized_cache`. When that flag
 is enabled and a cache backend exists, the wrapper stores resized frames or
-face-cropped frames in the cache as a second-level optimization.
+face-cropped frames in the cache as a second-level optimization. Processed
+cache entries are separated by output size and, for face crops, margin.
 
 Blob cache paths are encoded and kept beneath the configured cache directory,
 including blob names with absolute or parent-like path segments. Cache

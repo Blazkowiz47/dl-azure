@@ -124,16 +124,15 @@ class AzureComputeExecutor(BaseExecutor):
             tracking_context=tracking_context,
             resume=resume,
         )
-        self.compute_target = self.executor_config.get("compute_target") or kwargs.get(
+        self.compute_target = kwargs.get("compute_target") or self.executor_config.get(
             "compute_target"
         )
         if not self.compute_target:
             raise ValueError("executor.compute_target is required for Azure sweeps")
-        environment_name = kwargs.get("environment_name", "dl_lab")
 
         # Get environment name and version from executor config
-        self.environment_name = self.executor_config.get(
-            "environment_name", environment_name
+        self.environment_name = kwargs.get("environment_name") or self.executor_config.get(
+            "environment_name", "dl_lab"
         )
         self.environment_version = self.executor_config.get(
             "environment_version", "latest"

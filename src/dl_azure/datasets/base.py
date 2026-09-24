@@ -346,7 +346,10 @@ class AzureFrameMixin(ABC):
             return None
 
         cache_prefix = (
-            "face_detected_image" if self.use_face_detection else ("resized_image")
+            f"face_detected_image_{self.margin[0]}-{self.margin[1]}_"
+            f"{self.resize_height}x{self.resize_width}"
+            if self.use_face_detection
+            else f"resized_image_{self.resize_height}x{self.resize_width}"
         )
         return self.cache.get_cached_image(f"{cache_prefix}/{image_path}")
 
@@ -359,7 +362,10 @@ class AzureFrameMixin(ABC):
             return
 
         cache_prefix = (
-            "face_detected_image" if self.use_face_detection else ("resized_image")
+            f"face_detected_image_{self.margin[0]}-{self.margin[1]}_"
+            f"{self.resize_height}x{self.resize_width}"
+            if self.use_face_detection
+            else f"resized_image_{self.resize_height}x{self.resize_width}"
         )
         self.cache.cache_image_async(f"{cache_prefix}/{image_path}", image)
 
