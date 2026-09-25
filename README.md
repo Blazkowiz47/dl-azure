@@ -5,17 +5,14 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.24`.
-Requires `deep-learning-core>=0.1.8,<0.2`.
+Current release: `deep-learning-azure==0.0.25`.
+Requires `deep-learning-core>=0.1.9,<0.2`.
 
-## What's New in 0.0.24?
+## What's New in 0.0.25?
 
-- Azure sweeps preserve accepted and indeterminate job states across default
-  and parallel execution, including interrupted submissions
-- child jobs receive scoped storage access without forwarding the account key
-- scaffold updates keep existing dataset files and support in-place setup
-- the package uses the released dl-core 0.1.8 sweep hooks; its development
-  PyTorch requirement is `torch>2.3` without an upper cap
+- Azure jobs and tracking use the prepared sweep run name, matching the
+  generated config and artifacts
+- the integration requires dl-core 0.1.9 for the matching sweep behavior
 
 Previous versions are recorded in the [release history](RELEASES.md).
 

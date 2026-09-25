@@ -3,16 +3,13 @@
 This documentation covers the Azure adapter layer that sits on top of
 `dl-core`.
 
-Current public release: `deep-learning-azure==0.0.24`, requiring
-`deep-learning-core>=0.1.8,<0.2`.
+Current public release: `deep-learning-azure==0.0.25`, requiring
+`deep-learning-core>=0.1.9,<0.2`.
 
-## What's New in 0.0.24?
+## What's New in 0.0.25?
 
-- default and parallel sweeps retain accepted, running, and unknown Azure job
-  states, including on interruption
-- child-job storage access uses scoped credentials, and scaffold updates keep
-  existing dataset files
-- dl-core 0.1.8 is the supported minimum for these sweep behaviors
+- Azure jobs and tracking reuse the prepared sweep run name
+- dl-core 0.1.9 is the supported minimum
 
 - [Release History](../RELEASES.md)
 

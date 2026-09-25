@@ -3,9 +3,10 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
-## Unreleased
+## 0.0.25
 
 - Azure job and tracking names reuse the generated run config's `runtime.name`
+- requires `deep-learning-core>=0.1.9,<0.2`
 
 ## 0.0.24
 
