@@ -69,6 +69,7 @@ The executor also reads:
 The executor submits each generated sweep run as an Azure ML command job. The
 parent process is a sweep orchestrator, while each child config becomes its own
 Azure job. Child jobs receive the scoped storage token when one is configured.
+Child job and tracking names reuse the generated run config's `runtime.name`.
 The executor records accepted jobs as `running` and indeterminate jobs as
 `unknown`; `--resume` skips both until their status is reconciled.
 Ctrl+C leaves only ambiguous in-flight Azure submissions `unknown`; finished

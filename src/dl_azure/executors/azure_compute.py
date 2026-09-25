@@ -987,8 +987,10 @@ class AzureComputeExecutor(BaseExecutor):
 
         self._apply_azure_output_dir(run_config)
 
-        # Generate descriptive run name from grid parameters
-        run_name = self.generate_run_name(run_config, run_index)
+        # Keep the name assigned when the sweep config was generated.
+        run_name = run_config.get("runtime", {}).get("name") or self.generate_run_name(
+            run_config, run_index
+        )
 
         # Inject tracking metadata for downstream adapters and logs
         self.inject_tracking_params(

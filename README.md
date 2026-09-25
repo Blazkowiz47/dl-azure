@@ -71,13 +71,14 @@ scaffold, selects `executors.azure` in the example sweep, and creates
 When adding Azure wiring to an existing project, `dl-init` preserves its
 dataset modules. Add project-specific Azure dataset wrappers there if needed.
 
-The development lock uses a dl-core Git revision for integration tests. Both
-publish workflows reject that source and require a PyPI dl-core version whose
-minimum matches the dependency floor before building a release.
+The development lock resolves dl-core from PyPI. Both publish workflows check
+that the locked version matches the declared minimum before building a release.
 
 The Azure executor is sweep-oriented. Use
 `uv run dl-sweep experiments/lr_sweep.yaml --dry-run` before the first real
-submission in a new repository.
+submission in a new repository. It writes generated run YAML; use `--preview`
+for a read-only check, or `--overwrite` when replacing existing generated
+configs is intended.
 
 If you need Azure ML to run a custom script instead of the default
 `python -m dl_core.worker ...` command, set `executor.command` in the sweep

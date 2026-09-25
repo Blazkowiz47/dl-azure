@@ -3,6 +3,10 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## Unreleased
+
+- Azure job and tracking names reuse the generated run config's `runtime.name`
+
 ## 0.0.24
 
 - Azure sweep submissions are claimed consistently, retries preserve

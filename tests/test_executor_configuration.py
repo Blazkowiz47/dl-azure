@@ -362,6 +362,30 @@ def test_execute_run_classifies_azure_status_without_false_completion(
     assert status_checks == ([] if dont_wait else ["job-1"])
 
 
+def test_execute_run_uses_prepared_sweep_name(tmp_path: Path) -> None:
+    """Azure tracking must use the same name as the saved run config."""
+    config_path = tmp_path / "run.yaml"
+    config_path.write_text(
+        "runtime:\n  name: lr_0.00101_seed_7\n", encoding="utf-8"
+    )
+    executor = AzureComputeExecutor(
+        sweep_config={"executor": {}},
+        experiment_name="demo",
+        sweep_id="sweep-1",
+        compute_target="gpu-cluster",
+        dry_run=True,
+    )
+    executor.generate_run_name = lambda config, index: pytest.fail(
+        "Prepared run names must not be regenerated"
+    )
+
+    result = executor.execute_run(0, config_path)
+
+    assert result["tracking_run_name"] == "lr_0.00101_seed_7"
+    saved_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert saved_config["tracking"]["run_name"] == "lr_0.00101_seed_7"
+
+
 def test_sequential_submission_keeps_running_tracker_status(tmp_path: Path) -> None:
     """The default sweep entry point must keep submitted jobs running."""
     config_path = tmp_path / "run.yaml"
