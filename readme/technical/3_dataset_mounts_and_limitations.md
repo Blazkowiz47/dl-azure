@@ -108,8 +108,9 @@ cache identities, so renewed tokens reuse the same shard file.
 
 Timeouts, connection failures, changed ETags, HTTP 408/429, and server errors
 are retried with capped exponential backoff. Authentication, permission, and
-missing-blob responses fail immediately. After the final attempt, the original
-exception is propagated through the DataLoader.
+missing-blob responses fail immediately. After the final attempt, a
+`RuntimeError` with the public shard URL and exception type reaches the
+DataLoader; signed URLs are excluded from the error text.
 
 WebDataset supports uncompressed and compressed tar streams. Its shuffle is
 buffered rather than a perfect global permutation, and resampled training may
@@ -120,6 +121,128 @@ discovered sources with `name`, `weight`, and `shards`. Azure compute resolves
 relative mounted paths after this hook; Azure streaming converts returned blob
 paths to SAS URLs after the hook. This keeps project discovery and weighting
 separate from backend access.
+
+### Queued Shard Prefetch
+
+`AzureStreamingTarShardWrapper.create_shard_prefetcher()` creates a controller
+owned by the trainer. It uses the same cache as normal WebDataset reads.
+Configure it under `dataset.prefetch`:
+
+```yaml
+dataset:
+  prefetch:
+    enabled: true                 # Default: false
+    trigger_fraction: 0.5         # Inclusive range: 0 to 1
+    max_concurrent_downloads: 2   # Positive integer; per controller
+    max_pending_shards: 32        # Positive integer; distinct upcoming shards
+```
+
+Configuration is checked when the controller is created. A fraction of `0`
+starts downloads on the first `advance()` call; `1` waits until the reported
+budget is consumed. Enabling this block alone does not choose replacements or
+track training progress. The project wrapper keeps its existing selection
+method, and the trainer supplies the resulting plan and progress.
+
+Select each slot's next shard before creating its plan. Paths are relative to
+the blob container, as in `build_shard_sources()`. In this example, `slot_plans`
+contains `current`, `upcoming`, and `sample_budget`; `consumed_by_slot` counts
+trained samples for each slot.
+
+```python
+with wrapper.create_shard_prefetcher() as prefetch:
+    for slot, plan in slot_plans.items():
+        prefetch.plan(
+            slot,
+            current=[plan["current"]],
+            upcoming=[plan["upcoming"]],
+        )
+
+    # Call after each training batch, using cumulative counts for this plan.
+    for slot, consumed in consumed_by_slot.items():
+        prefetch.advance(
+            slot,
+            consumed=consumed,
+            total=slot_plans[slot]["sample_budget"],
+        )
+
+    # At a replacement boundary, before rebuilding the relevant data iterator:
+    prefetch.wait(finished_slot, timeout=120)
+    # Install exactly slot_plans[finished_slot]["upcoming"] using the
+    # project's existing replacement method. Before releasing the old plan,
+    # reserve the new active shard in its next plan, or open its reader.
+    prefetch.release(finished_slot)
+```
+
+For whole-cycle replacement, put both shard sets in one plan and report
+completed batches against the cycle's batch budget. Individual shard plans
+cross the threshold independently and share a download queue. Requests for
+the same shard share one download, including requests with renewed SAS tokens.
+`plan()` reserves files without downloading them. Release a plan before reusing
+its key.
+
+Choose the upcoming shards once and use that selection at replacement time.
+Prefetch leaves dataset membership, shuffle order, sampling weights, and
+DataLoader iterators unchanged. Preserve shard identity in batches to report
+per-shard consumption. For resampled streams, define a finite sample
+budget or use cycle progress. DataLoader workers can read ahead of the trainer,
+so lower the threshold if they reach the next shard before its download finishes.
+
+`status()` returns public shard URLs mapped to `planned`, `queued`,
+`downloading`, `waiting_for_space`, `ready`, `failed`, or `cancelled`.
+`wait()` starts any remaining downloads for that plan immediately and returns
+local paths after all complete. It surfaces a failed download; a timeout leaves
+background work running. Progress is reported per shard, without byte-level
+transfer percentages. A normal cache read also joins an in-flight download
+through the shared file lock.
+
+Keep the controller in the trainer and call its API from the thread that
+created it. Start DataLoader worker processes before the first `advance()` or
+`wait()` call starts the download threads. Do not store the controller on the
+dataset wrapper, pass it to workers, or include it in checkpoints. Recreate
+plans from the training state when resuming. Use the context manager or call
+`close()` in `finally`; shutdown cancels queued work and waits for in-flight
+requests to finish under the configured download retries and timeouts.
+
+The concurrency limit is per controller. Ranks and workers sharing a local
+cache coordinate downloads, disk reservations, and eviction with file locks;
+different hosts have separate caches and limits. Supply only the shards that
+the local training process needs. SAS URLs are generated when a plan is made,
+so their configured lifetime must cover that plan.
+
+### Cache Capacity and Reservations
+
+`AzureShardCache` protects open WebDataset streams. Prefetch plans additionally
+protect all their current and upcoming shards, even before download starts.
+Release a plan only when its reservations are no longer needed; create the
+next plan before releasing the previous one to preserve protection during
+handoff. Opening a reader acquires an independent reservation. Overlapping
+plans and readers keep the file protected until the last reservation exits.
+
+The cache budget includes completed files and the full expected size of
+in-flight downloads. Eviction removes the oldest unreserved files. A download
+that cannot fit raises `CacheCapacityError` on the normal read path. Background
+prefetch pauses that request in `waiting_for_space` and retries as space becomes
+available; it still services other queued requests. `wait()` raises
+`CacheCapacityError` if a required download is waiting for space, so an
+undersized cache does not silently hang a cycle boundary.
+
+Size the cache for the active set plus its upcoming replacements. A plan
+protecting both sets cannot make progress if they do not fit together. Releasing
+other finished plans can free space; otherwise increase `cache_size_gb` or plan
+fewer simultaneous replacements. The queue admission limit includes planned,
+queued, downloading, and completed upcoming shards until their plans release
+them. Cancelled jobs that have not left the queue still occupy admission slots.
+
+Reservations use operating-system file locks. Eviction reclaims stale pins and
+download-size records left by an exited process. Use the same cache size for
+all processes sharing a directory. Older package versions do not respect these
+reservations, so use separate cache directories when running mixed versions.
+
+For direct storage integration, import `AzureShardCache`, `ShardPrefetcher`, and
+`CacheCapacityError` from `dl_azure.storage`. A direct `ShardPrefetcher(cache)`
+is enabled by default and accepts authenticated URLs. `cache.ensure(url)`
+downloads and validates a remote shard, then returns its local path. Hold
+`cache.reserve(url)` while retaining or reading that path to prevent eviction.
 
 ## Frame Dataset Notes
 

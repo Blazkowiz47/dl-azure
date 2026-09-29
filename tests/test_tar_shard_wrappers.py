@@ -14,7 +14,7 @@ from dl_azure.datasets import (
     AzureComputeTarShardWrapper,
     AzureStreamingTarShardWrapper,
 )
-from dl_azure.datasets.tar_shard import _AzureRetryingShardCache
+from dl_azure.storage.shard_cache import AzureShardCache
 
 
 def _write_tar(path: Path) -> None:
@@ -184,7 +184,7 @@ def test_streaming_tar_cache_retries_whole_azure_downloads(
         return _FakeBlobClient(fail=len(attempts) == 1)
 
     monkeypatch.setattr(
-        "dl_azure.datasets.tar_shard.BlobClient.from_blob_url",
+        "dl_azure.storage.shard_cache.BlobClient.from_blob_url",
         from_blob_url,
     )
     wrapper = _DynamicStreamingTarWrapper(
@@ -269,9 +269,9 @@ def test_azure_cache_errors_do_not_expose_sas_token(
         raise OSError(f"Could not open {url}")
 
     monkeypatch.setattr(
-        "dl_azure.datasets.tar_shard.BlobClient.from_blob_url", fail_download
+        "dl_azure.storage.shard_cache.BlobClient.from_blob_url", fail_download
     )
-    cache = _AzureRetryingShardCache(
+    cache = AzureShardCache(
         str(tmp_path / "cache"),
         cache_size_bytes=1024**3,
         download_retries=0,

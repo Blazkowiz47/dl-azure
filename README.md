@@ -247,6 +247,26 @@ required. Authentication, permission, and missing-blob errors are not retried.
 Streaming tar shards use the local cache by default so sample metadata and
 download errors do not expose signed URL query strings.
 
+For training that rotates shards, enable queued downloads and report progress
+through `wrapper.create_shard_prefetcher()`:
+
+```yaml
+dataset:
+  prefetch:
+    enabled: true
+    trigger_fraction: 0.5
+    max_concurrent_downloads: 2
+    max_pending_shards: 32
+```
+
+Create one plan per active shard slot, or one plan for a whole cycle. The
+trainer supplies the selected replacements and calls `advance()` with samples
+or batches consumed. At the threshold, the queue downloads those replacements
+while training continues. Current and upcoming shards remain protected from
+cache eviction until their plan is released. Prefetching defaults to disabled;
+enabling it requires the project trainer to call this API. See the
+[integration example and cache limits](readme/technical/3_dataset_mounts_and_limitations.md#queued-shard-prefetch).
+
 Multiframe wrappers add one `multiframe` block:
 
 ```yaml

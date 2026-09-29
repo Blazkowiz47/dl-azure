@@ -2,238 +2,16 @@
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import logging
-import os
-import random
-import tarfile
-import tempfile
-import time
-from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
-from azure.core import MatchConditions
-from azure.core.exceptions import (
-    HttpResponseError,
-    ResourceModifiedError,
-    ServiceRequestError,
-    ServiceResponseError,
-)
-from azure.storage.blob import BlobClient
 from dl_core.datasets import TarShardWrapper
-from filelock import FileLock
 from torch.utils.data import Dataset
 
 from dl_azure.datasets.base import AzureBlobMixin, AzureComputeMixin
-
-logger = logging.getLogger(__name__)
-
-
-class _AzureRetryingShardCache:
-    """Lazily download Azure shards into a process-safe local cache."""
-
-    def __init__(
-        self,
-        cache_dir: str,
-        *,
-        cache_size_bytes: int,
-        download_retries: int,
-        retry_backoff_seconds: float,
-        retry_backoff_max_seconds: float,
-        retry_jitter: bool,
-        connection_timeout_seconds: float,
-        read_timeout_seconds: float,
-        lock_timeout_seconds: float,
-    ) -> None:
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.lock_dir = self.cache_dir.parent / f".{self.cache_dir.name}.locks"
-        self.part_dir = self.cache_dir.parent / f".{self.cache_dir.name}.parts"
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
-        self.part_dir.mkdir(parents=True, exist_ok=True)
-        self.download_retries = download_retries
-        self.retry_backoff_seconds = retry_backoff_seconds
-        self.retry_backoff_max_seconds = retry_backoff_max_seconds
-        self.retry_jitter = retry_jitter
-        self.connection_timeout_seconds = connection_timeout_seconds
-        self.read_timeout_seconds = read_timeout_seconds
-        self.lock_timeout_seconds = lock_timeout_seconds
-        from webdataset.cache import LRUCleanup
-
-        self.cleaner = LRUCleanup(
-            str(self.cache_dir),
-            cache_size_bytes,
-            interval=30,
-        )
-
-    def __call__(
-        self, urls: Iterable[str | dict[str, Any]]
-    ) -> Iterator[dict[str, Any]]:
-        for item in urls:
-            sample = dict(item) if isinstance(item, dict) else {"url": item}
-            url = str(sample["url"])
-            parsed = urlsplit(url)
-            public_url = urlunsplit(
-                (parsed.scheme, parsed.netloc, parsed.path, "", "")
-            )
-            if parsed.scheme in {"", "file"}:
-                destination = Path(unquote(parsed.path if parsed.scheme else url))
-            else:
-                identity = urlunsplit(
-                    (
-                        parsed.scheme.lower(),
-                        parsed.netloc.lower(),
-                        unquote(parsed.path),
-                        "",
-                        "",
-                    )
-                )
-                digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
-                basename = Path(unquote(parsed.path)).name or "shard.tar"
-                basename = "".join(
-                    character
-                    if character.isalnum() or character in "._-"
-                    else "_"
-                    for character in basename
-                )
-                destination = self.cache_dir / f"{digest}-{basename}"
-                with FileLock(
-                    str(self.lock_dir / f"{destination.name}.lock"),
-                    timeout=self.lock_timeout_seconds,
-                ):
-                    valid_cache = False
-                    if destination.is_file():
-                        try:
-                            with tarfile.open(destination, "r:*") as archive:
-                                archive.next()
-                            valid_cache = True
-                        except (OSError, tarfile.TarError):
-                            destination.unlink(missing_ok=True)
-                    if valid_cache:
-                        os.utime(destination, None)
-                    else:
-                        self.cleaner.cleanup()
-
-                        for attempt in range(self.download_retries + 1):
-                            descriptor, temporary_name = tempfile.mkstemp(
-                                dir=self.part_dir,
-                                prefix=f".{destination.name}.",
-                                suffix=".part",
-                            )
-                            temporary_path = Path(temporary_name)
-                            client: BlobClient | None = None
-                            try:
-                                client = BlobClient.from_blob_url(url)
-                                request_options = {
-                                    "connection_timeout": (
-                                        self.connection_timeout_seconds
-                                    ),
-                                    "read_timeout": self.read_timeout_seconds,
-                                }
-                                properties = client.get_blob_properties(
-                                    **request_options
-                                )
-                                etag = getattr(properties, "etag", None)
-                                expected_size = getattr(properties, "size", None)
-                                download_options = dict(request_options)
-                                if etag is not None:
-                                    download_options.update(
-                                        etag=etag,
-                                        match_condition=(
-                                            MatchConditions.IfNotModified
-                                        ),
-                                    )
-                                download_options["validate_content"] = True
-                                downloader = client.download_blob(
-                                    **download_options
-                                )
-                                with os.fdopen(descriptor, "wb") as handle:
-                                    descriptor = -1
-                                    downloaded_size = downloader.readinto(handle)
-                                if (
-                                    expected_size is not None
-                                    and downloaded_size != int(expected_size)
-                                ):
-                                    raise OSError(
-                                        f"Azure shard size mismatch for {public_url}: "
-                                        f"expected {expected_size}, downloaded "
-                                        f"{downloaded_size}"
-                                    )
-                                try:
-                                    with tarfile.open(
-                                        temporary_path, "r:*"
-                                    ) as archive:
-                                        archive.next()
-                                except (OSError, tarfile.TarError) as exc:
-                                    raise ValueError(
-                                        "Downloaded Azure shard is not a tar "
-                                        f"archive: {public_url}"
-                                    ) from exc
-                                os.replace(temporary_path, destination)
-                                break
-                            except Exception as exc:
-                                if descriptor >= 0:
-                                    os.close(descriptor)
-                                    descriptor = -1
-                                temporary_path.unlink(missing_ok=True)
-                                status_code = getattr(exc, "status_code", None)
-                                retryable = isinstance(
-                                    exc,
-                                    (
-                                        OSError,
-                                        TimeoutError,
-                                        ServiceRequestError,
-                                        ServiceResponseError,
-                                        ResourceModifiedError,
-                                        ValueError,
-                                    ),
-                                ) or (
-                                    isinstance(exc, HttpResponseError)
-                                    and status_code is not None
-                                    and (
-                                        status_code in {408, 429}
-                                        or status_code >= 500
-                                    )
-                                )
-                                if (
-                                    not retryable
-                                    or attempt >= self.download_retries
-                                ):
-                                    raise RuntimeError(
-                                        f"Azure shard download failed for "
-                                        f"{public_url}: {type(exc).__name__}"
-                                    ) from None
-                                delay = min(
-                                    self.retry_backoff_seconds * (2**attempt),
-                                    self.retry_backoff_max_seconds,
-                                )
-                                if self.retry_jitter and delay > 0:
-                                    delay *= random.uniform(0.5, 1.5)
-                                logger.warning(
-                                    "Azure shard download failed (%s/%s) for "
-                                    "%s: %s; retrying in %.2fs",
-                                    attempt + 1,
-                                    self.download_retries + 1,
-                                    parsed.path,
-                                    type(exc).__name__,
-                                    delay,
-                                )
-                                time.sleep(delay)
-                            finally:
-                                if descriptor >= 0:
-                                    os.close(descriptor)
-                                if client is not None:
-                                    with contextlib.suppress(Exception):
-                                        client.close()
-            sample.update(
-                url=public_url,
-                stream=destination.open("rb"),
-                local_path=str(destination),
-            )
-            yield sample
+from dl_azure.storage.shard_cache import AzureShardCache
+from dl_azure.storage.shard_prefetch import ShardPrefetcher
 
 
 class AzureComputeTarShardWrapper(AzureComputeMixin, TarShardWrapper):
@@ -307,6 +85,31 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
             ),
         }
 
+    def create_shard_prefetcher(self) -> ShardPrefetcher:
+        """Create a trainer-owned controller for explicit shard/cycle plans.
+
+        Use it as a context manager in the trainer, outside DataLoader workers.
+        Paths passed to plan() are logical container-relative blob paths.
+        """
+        options = self.config.get("prefetch", {})
+        if not isinstance(options, dict):
+            raise TypeError("dataset.prefetch must be a mapping")
+
+        def resolve_url(blob_path: str) -> str:
+            if not blob_path.lower().endswith((".tar", ".tar.gz", ".tgz")):
+                raise ValueError("Prefetch shard paths must identify tar archives")
+            return self.azure_service.get_blob_sas_url(
+                self.container_name,
+                blob_path,
+                expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
+            )
+
+        return ShardPrefetcher(
+            AzureShardCache(**self._azure_shard_cache_options),
+            resolve_url=resolve_url,
+            **{"enabled": False, **options},
+        )
+
     def _transform_webdataset_sample(
         self,
         sample: dict[str, Any],
@@ -341,7 +144,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
         for pipeline in pipelines:
             for index, stage in enumerate(pipeline.pipeline):
                 if isinstance(stage, FileCache):
-                    pipeline.pipeline[index] = _AzureRetryingShardCache(
+                    pipeline.pipeline[index] = AzureShardCache(
                         **self._azure_shard_cache_options
                     )
                     replaced += 1
