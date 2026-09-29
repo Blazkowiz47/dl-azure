@@ -3,13 +3,14 @@
 This documentation covers the Azure adapter layer that sits on top of
 `dl-core`.
 
-Current public release: `deep-learning-azure==0.0.25`, requiring
+Current public release: `deep-learning-azure==0.0.26`, requiring
 `deep-learning-core>=0.1.9,<0.2`.
 
-## What's New in 0.0.25?
+## What's New in 0.0.26?
 
-- Azure jobs and tracking reuse the prepared sweep run name
-- dl-core 0.1.9 is the supported minimum
+- queued shard downloads use configurable consumption thresholds and concurrency
+- cache reservations protect active and upcoming shards across processes
+- dl-core 0.1.9 remains the supported minimum
 
 - [Release History](../RELEASES.md)
 

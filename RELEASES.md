@@ -3,6 +3,18 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## 0.0.26
+
+- background downloads support per-shard and whole-cycle replacement plans,
+  with a configurable consumption threshold that defaults to 0.5
+- bounded concurrency, duplicate-request handling, progress status, and explicit
+  shutdown are available through the trainer-owned shard prefetch controller
+- cache reservations protect active and upcoming shards across processes and
+  account for in-flight download sizes; stale reservations are recovered
+- project trainers supply replacement plans and progress; prefetch is disabled
+  by default
+- requires `deep-learning-core>=0.1.9,<0.2`; no core version bump is needed
+
 ## 0.0.25
 
 - Azure job and tracking names reuse the generated run config's `runtime.name`

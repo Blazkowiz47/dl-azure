@@ -5,14 +5,15 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.25`.
+Current release: `deep-learning-azure==0.0.26`.
 Requires `deep-learning-core>=0.1.9,<0.2`.
 
-## What's New in 0.0.25?
+## What's New in 0.0.26?
 
-- Azure jobs and tracking use the prepared sweep run name, matching the
-  generated config and artifacts
-- the integration requires dl-core 0.1.9 for the matching sweep behavior
+- Shard prefetch starts background downloads at a configurable consumption
+  threshold, with per-shard or whole-cycle replacement plans
+- active and upcoming shards are protected from cache eviction across processes
+- the minimum dl-core version remains 0.1.9
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
