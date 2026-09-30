@@ -3,6 +3,18 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## 0.0.27
+
+- concrete tar wrappers choose destinations through a public path hook;
+  a shared cache factory serves streaming reads, prefetching, and indexed paths
+- destination records support nested paths and arbitrary data roots, with
+  process-safe pins, duplicate-destination checks, and capacity-aware eviction
+- temporary downloads use their destination filesystem; access tracking leaves
+  tar modification time intact so core indexes remain reusable
+- `cached_shard_sources()` reserves local files for the opt-in core indexed
+  reader; trainers can feed per-shard progress to the existing queue
+- requires `deep-learning-core>=0.1.12,<0.2`
+
 ## 0.0.26
 
 - background downloads support per-shard and whole-cycle replacement plans,

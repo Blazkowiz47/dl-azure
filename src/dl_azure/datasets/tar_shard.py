@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
+import math
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from dl_core.datasets import TarShardWrapper
 from torch.utils.data import Dataset
@@ -84,6 +87,78 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
                 cache_config.get("lock_timeout_seconds", 3600)
             ),
         }
+        if cache_config.get("state_dir") is not None:
+            self._azure_shard_cache_options["state_dir"] = cache_config["state_dir"]
+
+    def get_shard_cache_path(self, blob_path: str) -> Path | None:
+        """Return a project-chosen destination, or None for the default cache.
+
+        blob_path is container-relative. Return an absolute path for any data
+        root, or a relative path beneath cache.cache_dir. Keep mappings stable
+        and distinct for different blobs sharing the same cache state directory.
+        """
+        return None
+
+    def _resolve_shard_cache_path(self, public_url: str) -> Path | None:
+        # Decode only after removing the container, so encoded slashes in blob
+        # names remain part of the project's logical path.
+        blob_path = urlsplit(public_url).path.lstrip("/").split("/", 1)[-1]
+        return self.get_shard_cache_path(unquote(blob_path))
+
+    def create_shard_cache(self) -> AzureShardCache:
+        """Create the cache used by streaming reads, prefetching, and indexing."""
+        return AzureShardCache(
+            **self._azure_shard_cache_options,
+            path_resolver=self._resolve_shard_cache_path,
+        )
+
+    @contextmanager
+    def cached_shard_sources(
+        self, data: list[dict[str, Any]]
+    ) -> Iterator[list[dict[str, Any]]]:
+        """Yield local sources while reserving every active file in this process.
+
+        Build the indexed dataset and finish its DataLoader workers inside this
+        context. Only paths and metadata belong in worker dataset instances.
+        """
+        cache = self.create_shard_cache()
+        with ExitStack() as reservations:
+            sources = []
+            downloads = []
+            for source in data:
+                weight = float(source.get("weight", 1))
+                if not math.isfinite(weight) or weight < 0:
+                    raise ValueError(
+                        "Shard source weights must be finite and nonnegative"
+                    )
+                if weight == 0:
+                    continue
+                shards = []
+                for configured in source.get("shards", []):
+                    shard = (
+                        dict(configured)
+                        if isinstance(configured, dict)
+                        else {"path": str(configured)}
+                    )
+                    url = str(shard["path"])
+                    destination = reservations.enter_context(cache.reserve(url))
+                    parsed = urlsplit(url)
+                    public_url = urlunsplit(
+                        (parsed.scheme, parsed.netloc, parsed.path, "", "")
+                    )
+                    local_shard = {
+                        **shard,
+                        "path": str(destination),
+                        "public_url": shard.get("public_url", public_url),
+                    }
+                    shards.append(local_shard)
+                    downloads.append((url, local_shard))
+                sources.append({**source, "shards": shards})
+            # Protect the full active selection before admitting a miss, so
+            # admission cannot evict a later shard in this same selection.
+            for url, local_shard in downloads:
+                local_shard["path"] = str(cache.ensure(url))
+            yield sources
 
     def create_shard_prefetcher(self) -> ShardPrefetcher:
         """Create a trainer-owned controller for explicit shard/cycle plans.
@@ -105,7 +180,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
             )
 
         return ShardPrefetcher(
-            AzureShardCache(**self._azure_shard_cache_options),
+            self.create_shard_cache(),
             resolve_url=resolve_url,
             **{"enabled": False, **options},
         )
@@ -144,9 +219,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
         for pipeline in pipelines:
             for index, stage in enumerate(pipeline.pipeline):
                 if isinstance(stage, FileCache):
-                    pipeline.pipeline[index] = AzureShardCache(
-                        **self._azure_shard_cache_options
-                    )
+                    pipeline.pipeline[index] = self.create_shard_cache()
                     replaced += 1
                     break
         if replaced != len(pipelines):

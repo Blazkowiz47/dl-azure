@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import multiprocessing
 import tarfile
 import threading
@@ -11,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -245,8 +247,12 @@ def test_disabled_prefetch_preserves_lazy_loading(tmp_path: Path, blobs: Any) ->
     assert blobs.calls == []
 
 
-def _hold_reservation(cache_dir: str, ready: Any, release: Any) -> None:
-    cache = AzureShardCache(cache_dir, cache_size_bytes=10240)
+def _hold_reservation(
+    cache_dir: str, ready: Any, release: Any, path_resolver: Any = None
+) -> None:
+    cache = AzureShardCache(
+        cache_dir, cache_size_bytes=10240, path_resolver=path_resolver
+    )
     with cache.reserve(_url("a")):
         ready.set()
         release.wait(5)
@@ -277,6 +283,280 @@ def test_reservations_protect_files_across_processes(
     assert process.exitcode == 0
     cache.ensure(_url("b"))
     assert not path.exists()
+
+
+def _nested_destination(public_url: str) -> Path:
+    return Path(urlsplit(public_url).path.lstrip("/").split("/", 1)[1])
+
+
+def test_custom_destinations_keep_same_basenames_distinct(
+    tmp_path: Path, blobs: Any
+) -> None:
+    cache = AzureShardCache(
+        str(tmp_path / "cache"),
+        cache_size_bytes=20480,
+        path_resolver=_nested_destination,
+    )
+    urls = [_url("first/same"), _url("second/same")]
+    first, second = [cache.ensure(url) for url in urls]
+    assert first == tmp_path / "cache/first/same.tar"
+    assert second == tmp_path / "cache/second/same.tar"
+    assert first.is_file() and second.is_file()
+    with cache.reserve(urls[0]):
+        cache.ensure(_url("third/same"))
+        assert first.is_file()
+        assert not second.exists()
+    assert len(blobs.calls) == 3
+
+
+def test_absolute_destination_and_state_directory(
+    tmp_path: Path, blobs: Any, monkeypatch: Any
+) -> None:
+    destination = tmp_path / "project/data/custom.tar"
+    received = []
+
+    def resolve(public_url: str) -> Path:
+        received.append(public_url)
+        return destination
+
+    cache = AzureShardCache(
+        str(tmp_path / "default"),
+        cache_size_bytes=10240,
+        path_resolver=resolve,
+        state_dir=tmp_path / "state",
+    )
+    checked = []
+    from dl_azure.storage import shard_cache
+
+    original_disk_usage = shard_cache.shutil.disk_usage
+    monkeypatch.setattr(
+        shard_cache.shutil,
+        "disk_usage",
+        lambda path: (checked.append(path), original_disk_usage(path))[1],
+    )
+    assert cache.ensure(_url("custom")) == destination
+    assert destination.is_file()
+    assert checked == [destination.parent]
+    assert cache.lock_dir == tmp_path / "state/locks"
+    assert all("?" not in url for url in received)
+    assert not list(destination.parent.glob("*.part"))
+
+
+def test_custom_destination_conflicts_are_rejected(tmp_path: Path, blobs: Any) -> None:
+    cache = AzureShardCache(
+        str(tmp_path / "cache"),
+        cache_size_bytes=20480,
+        path_resolver=lambda url: "fixed.tar",
+    )
+    first = cache.ensure(_url("first"))
+    with pytest.raises(ValueError, match="different shard"):
+        cache.ensure(_url("second"))
+    assert first.exists()
+    assert blobs.calls == [_url("first")]
+
+
+def test_cache_hits_preserve_content_mtime_and_unmanaged_files(
+    tmp_path: Path, blobs: Any
+) -> None:
+    cache = AzureShardCache(
+        str(tmp_path / "cache"),
+        cache_size_bytes=10240,
+        path_resolver=_nested_destination,
+    )
+    unmanaged = cache.cache_dir / "user-owned.tar"
+    unmanaged.write_bytes(b"leave this file alone")
+    first = cache.ensure(_url("first"))
+    before = first.stat().st_mtime_ns
+    cache.ensure(_url("first").replace("secret", "renewed"))
+    assert first.stat().st_mtime_ns == before
+    cache.ensure(_url("second"))
+    assert not first.exists()
+    assert unmanaged.read_bytes() == b"leave this file alone"
+
+
+def test_abandoned_partial_at_custom_destination_is_reclaimed(
+    tmp_path: Path, blobs: Any
+) -> None:
+    cache = AzureShardCache(
+        str(tmp_path / "cache"),
+        cache_size_bytes=10240,
+        path_resolver=_nested_destination,
+    )
+    destination = cache.local_path(_url("abandoned"))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.parent / ".abandoned.part"
+    partial.write_bytes(b"partial download")
+    size_record = cache.part_dir / f"{cache._cache_key(destination)}.size"
+    size_record.write_text(
+        json.dumps(
+            {
+                "size": 10240,
+                "partial": str(partial),
+                "device": destination.parent.stat().st_dev,
+            }
+        )
+    )
+    cache.ensure(_url("different"))
+    assert not partial.exists()
+    assert not size_record.exists()
+
+
+def test_custom_destinations_are_protected_across_processes(
+    tmp_path: Path, blobs: Any
+) -> None:
+    cache = AzureShardCache(
+        str(tmp_path / "cache"),
+        cache_size_bytes=10240,
+        path_resolver=_nested_destination,
+    )
+    first = cache.ensure(_url("a"))
+    context = multiprocessing.get_context("spawn")
+    ready, release = context.Event(), context.Event()
+    process = context.Process(
+        target=_hold_reservation,
+        args=(str(cache.cache_dir), ready, release, _nested_destination),
+    )
+    process.start()
+    try:
+        assert ready.wait(15)
+        with pytest.raises(CacheCapacityError):
+            cache.ensure(_url("b"))
+        assert first.is_file()
+    finally:
+        release.set()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join()
+    assert process.exitcode == 0
+    cache.ensure(_url("b"))
+    assert not first.exists()
+
+
+def test_wrapper_custom_cache_is_shared_by_prefetch_and_indexed_reads(
+    tmp_path: Path, blobs: Any, monkeypatch: Any
+) -> None:
+    from dl_azure.datasets import AzureStreamingTarShardWrapper
+    from dl_core.datasets import IndexedTarDataset
+    from torch.utils.data import DataLoader
+
+    class Wrapper(AzureStreamingTarShardWrapper):
+        def get_shard_cache_path(self, blob_path: str) -> Path:
+            return tmp_path / "project" / blob_path
+
+        def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+            return {"key": file_dict["key"]}
+
+    service = SimpleNamespace(
+        get_blob_sas_url=lambda container, path, **kwargs: _url(Path(path).stem)
+    )
+    monkeypatch.setattr(
+        "dl_azure.datasets.base.AzureClientService", lambda config: service
+    )
+    wrapper = Wrapper(
+        {
+            "account_name": "demo",
+            "container_name": "data",
+            "azure_config_path": str(tmp_path / "missing.json"),
+            "auto_split": False,
+            "track_shard_progress": True,
+            "cache": {"cache_dir": str(tmp_path / "cache")},
+            "indexed_tar": {"index_dir": str(tmp_path / "indexes")},
+            "prefetch": {"enabled": True},
+            "shards": {"train": ["a.tar"]},
+        }
+    )
+    data = wrapper.get_shard_sources("train")
+    with wrapper.cached_shard_sources(data) as local:
+        assert local[0]["shards"][0]["path"] == str(tmp_path / "project/a.tar")
+        dataset = wrapper.build_indexed_dataset(local, "train")
+        assert isinstance(dataset, IndexedTarDataset)
+        wrapper.reset_shard_progress(dataset.shard_totals)
+        with wrapper.create_shard_prefetcher() as prefetch:
+            prefetch.plan("a.tar", current=["a.tar"], upcoming=["b.tar"])
+            for batch in DataLoader(dataset, batch_size=1):
+                wrapper.record_shard_consumption(batch["shard_id"])
+                progress = wrapper.get_shard_progress("a.tar")
+                prefetch.advance(
+                    "a.tar", consumed=progress["consumed"], total=progress["total"]
+                )
+            assert prefetch.wait("a.tar", timeout=3) == [tmp_path / "project/b.tar"]
+            assert "sig=" not in repr(dataset[0])
+        dataset.close()
+    assert blobs.calls == [_url("a"), _url("b")]
+    assert next(iter(wrapper.get_split("train")))["shard_id"] == ["a.tar"]
+    assert blobs.calls == [_url("a"), _url("b")]
+    assert not list(wrapper.create_shard_cache().pin_dir.glob("*.pin"))
+
+
+def test_indexed_source_context_reserves_whole_selection_before_download(
+    tmp_path: Path, blobs: Any, monkeypatch: Any
+) -> None:
+    from dl_azure.datasets import AzureStreamingTarShardWrapper
+
+    class Wrapper(AzureStreamingTarShardWrapper):
+        def get_shard_cache_path(self, blob_path: str) -> Path:
+            return Path(blob_path)
+
+        def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+            return file_dict
+
+    service = SimpleNamespace(
+        get_blob_sas_url=lambda container, path, **kwargs: _url(Path(path).stem)
+    )
+    monkeypatch.setattr(
+        "dl_azure.datasets.base.AzureClientService", lambda config: service
+    )
+    wrapper = Wrapper(
+        {
+            "account_name": "demo",
+            "container_name": "data",
+            "azure_config_path": str(tmp_path / "missing.json"),
+            "auto_split": False,
+            "cache": {
+                "cache_dir": str(tmp_path / "cache"),
+                "cache_size_gb": 20480 / 1024**3,
+            },
+            "shards": {"train": ["a.tar", "b.tar"]},
+        }
+    )
+    cache = wrapper.create_shard_cache()
+    existing = cache.ensure(_url("b"))
+    unrelated = cache.ensure(_url("unrelated"))
+    with wrapper.cached_shard_sources(wrapper.get_shard_sources("train")) as local:
+        assert existing.is_file()
+        assert not unrelated.exists()
+        assert all(Path(shard["path"]).is_file() for shard in local[0]["shards"])
+    assert blobs.calls == [_url("b"), _url("unrelated"), _url("a")]
+
+
+def test_wrapper_path_hook_decodes_blob_name_once(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from dl_azure.datasets import AzureStreamingTarShardWrapper
+
+    class Wrapper(AzureStreamingTarShardWrapper):
+        def get_shard_cache_path(self, blob_path: str) -> Path:
+            return Path(blob_path)
+
+        def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+            return file_dict
+
+    monkeypatch.setattr(
+        "dl_azure.datasets.base.AzureClientService", lambda config: SimpleNamespace()
+    )
+    wrapper = Wrapper(
+        {
+            "account_name": "demo",
+            "container_name": "data",
+            "azure_config_path": str(tmp_path / "missing.json"),
+            "auto_split": False,
+            "cache": {"cache_dir": str(tmp_path / "cache")},
+        }
+    )
+    cache = wrapper.create_shard_cache()
+    url = "https://demo.blob.core.windows.net/data/folder/literal%252F.tar?sig=secret"
+    assert cache.local_path(url) == tmp_path / "cache/folder/literal%2F.tar"
 
 
 def test_old_sas_tokens_share_download_identity(tmp_path: Path, blobs: Any) -> None:
@@ -367,7 +647,9 @@ def test_cancelled_queued_jobs_keep_the_admission_bound(
     assert not list(cache.pin_dir.iterdir())
 
 
-def test_recovers_abandoned_download_and_reservation(tmp_path: Path, blobs: Any) -> None:
+def test_recovers_abandoned_download_and_reservation(
+    tmp_path: Path, blobs: Any
+) -> None:
     cache = _cache(tmp_path, shards=1)
     old = cache.ensure(_url("old"))
     (cache.pin_dir / f"{old.name}.abandoned.pin").touch()

@@ -5,15 +5,17 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.26`.
-Requires `deep-learning-core>=0.1.9,<0.2`.
+Current release: `deep-learning-azure==0.0.27`.
+Requires `deep-learning-core>=0.1.12,<0.2`.
 
-## What's New in 0.0.26?
+## What's New in 0.0.27?
 
-- Shard prefetch starts background downloads at a configurable consumption
-  threshold, with per-shard or whole-cycle replacement plans
-- active and upcoming shards are protected from cache eviction across processes
-- the minimum dl-core version remains 0.1.9
+- concrete wrappers choose shard destinations through `get_shard_cache_path()`;
+  streaming reads, indexed reads, and prefetching share the cache factory
+- nested and absolute destinations have consistent locking, reservations,
+  capacity accounting, and eviction
+- `cached_shard_sources()` supplies reserved local paths for core's indexed
+  reader and completed-batch shard progress
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -267,6 +269,50 @@ while training continues. Current and upcoming shards remain protected from
 cache eviction until their plan is released. Prefetching defaults to disabled;
 enabling it requires the project trainer to call this API. See the
 [integration example and cache limits](readme/technical/3_dataset_mounts_and_limitations.md#queued-shard-prefetch).
+
+### Custom tar cache destinations
+
+Concrete classes choose where each blob is cached through a stable path mapping:
+
+```python
+from pathlib import Path
+from dl_azure.datasets import AzureStreamingTarShardWrapper
+
+
+class ProjectTarWrapper(AzureStreamingTarShardWrapper):
+    def get_shard_cache_path(self, blob_path: str) -> Path:
+        return Path(self.config["data_cache_root"]).expanduser() / blob_path
+
+    def transform(self, file_dict: dict, split: str) -> dict:
+        return {"key": file_dict["key"], "members": file_dict["members"]}
+```
+
+The hook receives a container-relative blob path. Absolute results may use any
+data root; relative results are beneath `cache.cache_dir`. Returning `None`
+uses the existing hashed filename. `create_shard_cache()` is the shared factory
+for streaming and prefetching. Direct `AzureShardCache` consumers can supply a
+`path_resolver` receiving the public blob URL without SAS query strings.
+
+`cache.state_dir` optionally selects where locks, pins, and destination records
+live, independently of shard destinations. All processes sharing destinations
+must share cache state, the size limit, and the path mapping. Eviction accounts
+for registered shard files across directories and preserves reservations.
+Different blobs mapped to the same destination raise an error. Cache hits
+update access metadata without changing tar modification time.
+
+### Indexed Azure tar reading
+
+Use `cached_shard_sources()` in the training process to resolve selected sources
+and reserve their local files. Build core's indexed dataset inside that context
+and finish its reader and workers before exiting. Concrete classes choose
+whether to use this utility. Workers receive local paths and metadata; the
+reservation context and prefetch controller belong to the trainer.
+
+`dataset.track_shard_progress: true` retains shard IDs after transforms. Record
+completed batches through `record_shard_consumption()` and pass the resulting
+counts to `ShardPrefetcher.advance()`. Each shard can trigger its replacement
+while one DataLoader worker pool reads across the selected shards. See
+[the indexed integration example](readme/technical/3_dataset_mounts_and_limitations.md#indexed-tar-reading).
 
 Multiframe wrappers add one `multiframe` block:
 

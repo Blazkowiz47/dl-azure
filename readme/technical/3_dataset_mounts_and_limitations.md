@@ -122,6 +122,86 @@ relative mounted paths after this hook; Azure streaming converts returned blob
 paths to SAS URLs after the hook. This keeps project discovery and weighting
 separate from backend access.
 
+### Custom Shard Destinations
+
+Override `get_shard_cache_path(blob_path)` to choose a shard's destination.
+The input is container-relative and decoded once. Return an absolute path for
+any data root, a relative path beneath `cache.cache_dir`, or `None` for the
+default hashed filename. Keep the mapping stable and distinguish blobs sharing
+cache state; concrete classes can incorporate account/container names as needed.
+
+`create_shard_cache()` serves streaming, prefetching, and indexed paths. Direct
+`AzureShardCache` consumers can supply `path_resolver(public_url)`; it receives
+the encoded URL path with query and fragment removed. `cache.state_dir` selects
+locks, pins, destination records, and size reservations independently of the
+data root. When omitted, state remains beside `cache.cache_dir`. Processes
+sharing destinations must share state, the size limit, and the mapping.
+
+Locks and pins use resolved full destinations, so equal basenames in different
+directories do not collide. Destination records bind files to SAS-free blob
+identities; mapping another blob there fails before downloading. Eviction
+accounts for registered files, including nested files and files outside
+`cache_dir`. Default hashed files from older versions are adopted. Unrelated
+files are not evicted unless explicitly registered. Finish older cache
+processes before sharing their destinations with the new version.
+
+Temporary payloads are written beside their destination for atomic promotion.
+Disk admission checks that filesystem; the shared budget includes registered
+shards and in-flight reservations. Abandoned partials are reclaimed once their
+download lock is available. Cache hits update access metadata rather than tar
+modification time, keeping core member indexes reusable.
+
+### Indexed Tar Reading
+
+Supply the selected weighted sources from `get_shard_sources(split)` once to
+`cached_shard_sources(data)`. This training-process context downloads misses
+and yields local paths with public shard URLs and logical source metadata.
+Every selected file stays reserved until the context exits.
+
+```python
+from torch.utils.data import DataLoader
+
+sources = wrapper.get_shard_sources("train")
+with wrapper.cached_shard_sources(sources) as local_sources:
+    dataset = wrapper.build_indexed_dataset(local_sources, "train")
+    sampler = wrapper.build_batch_sampler(
+        dataset, "train", batch_size=32, shuffle=True, drop_last=False
+    )
+    loader = DataLoader(
+        dataset, batch_sampler=sampler, num_workers=8,
+        collate_fn=wrapper.collate_fn,
+    )
+    wrapper.reset_shard_progress({
+        shard: count for shard, count in dataset.shard_totals.items() if count
+    })
+    with wrapper.create_shard_prefetcher() as prefetch:
+        for current, upcoming in replacement_pairs:
+            prefetch.plan(current, current=[current], upcoming=[upcoming])
+        for batch in loader:
+            if not batch:
+                continue
+            train_step(batch)
+            wrapper.record_shard_consumption(batch["shard_id"])
+            for shard, progress in wrapper.get_shard_progress().items():
+                prefetch.advance(
+                    shard, consumed=progress["consumed"], total=progress["total"]
+                )
+        # Use wait(shard) at the project's replacement boundary.
+    dataset.close()
+```
+
+Enable `dataset.track_shard_progress` and `dataset.prefetch`. The trainer owns
+`replacement_pairs`, training, and iterator replacement. Plan keys here match
+shard IDs, which default to container-relative source paths. Eight workers
+are shared across all selected shards. Supply eligible counts or finite budgets
+for filtering and repeated draws; unknown totals cannot trigger a fraction.
+
+The example fully consumes a finite loader without persistent workers. On an
+early stop or with persistent workers, stop those workers before releasing the
+reservation context. Reserve new active shards before releasing old plans.
+Create workers before the first `advance()` or `wait()` starts download threads.
+Worker datasets carry paths and metadata, never lease contexts or controllers.
+
 ### Queued Shard Prefetch
 
 `AzureStreamingTarShardWrapper.create_shard_prefetcher()` creates a controller
