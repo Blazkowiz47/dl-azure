@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,18 @@ def test_invalid_existing_azure_config_is_not_replaced(tmp_path: Path) -> None:
         _merged_azure_config(tmp_path)
 
     assert config_path.read_text(encoding="utf-8") == "{invalid"
+
+
+def test_existing_nested_azure_values_override_scaffold_defaults(tmp_path: Path) -> None:
+    (tmp_path / "azure-config.json").write_text(json.dumps({"azure": {
+        "account_name": "my-account",
+        "download": {"backend": "sdk", "sdk": {"max_concurrency": 8}},
+    }}))
+    rendered = json.loads(_merged_azure_config(tmp_path))["azure"]
+    assert rendered["account_name"] == "my-account"
+    assert rendered["download"]["backend"] == "sdk"
+    assert rendered["download"]["sdk"]["max_concurrency"] == 8
+    assert rendered["download"]["sdk"]["read_buffer_kib"] == 64
 
 
 def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
@@ -135,7 +148,10 @@ def test_azure_init_extension_updates_scaffold_files(tmp_path: Path) -> None:
     assert "*.log" in gitignore_text
     dataset_file = context.get_file(Path("src") / "datasets" / "demo.py")
     assert "pad-datasets" not in dataset_file
-    assert "dataset.container_name" in dataset_file
+    assert "dataset.azure.container_name" in dataset_file
+    azure_config = json.loads(context.get_file("azure-config.json"))["azure"]
+    assert azure_config["download"]["backend"] == "azcopy"
+    assert azure_config["download"]["sdk"]["read_buffer_kib"] == 64
 
     AzureInitExtension().apply(context)
     assert context.get_file(Path("configs") / "base.yaml").count(

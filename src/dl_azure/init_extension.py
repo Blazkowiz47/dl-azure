@@ -9,14 +9,32 @@ import yaml
 
 from dl_core.init_extensions import InitExtension, ScaffoldContext
 
+from dl_azure.config import merge_azure_config, normalize_azure_config
+
 
 def _azure_config_template() -> str:
     """Render the placeholder Azure workspace config."""
     return """{
-  "subscription_id": "<subscription-id>",
-  "resource_group": "<resource-group>",
-  "workspace_name": "<workspace-name>",
-  "account_name": "<storage-account-name>"
+  "azure": {
+    "subscription_id": "<subscription-id>",
+    "resource_group": "<resource-group>",
+    "workspace_name": "<workspace-name>",
+    "account_name": "<storage-account-name>",
+    "download": {
+      "backend": "azcopy",
+      "fallback_to_sdk": true,
+      "azcopy": {
+        "concurrency": null,
+        "buffer_gb": null
+      },
+      "sdk": {
+        "max_concurrency": 32,
+        "connection_pool_size": 32,
+        "chunk_size_mib": 4,
+        "read_buffer_kib": 64
+      }
+    }
+  }
 }
 """
 
@@ -109,7 +127,12 @@ def _merged_azure_config(target_dir: Path) -> str:
     if not isinstance(existing_config, dict):
         raise ValueError("Existing azure-config.json must be a JSON object")
 
-    merged_config = {**default_config, **existing_config}
+    merged_config = merge_azure_config(
+        default_config["azure"], normalize_azure_config(existing_config)
+    )
+    # Keep the existing format when extending an older project.
+    if "azure" in existing_config:
+        merged_config = {**existing_config, "azure": merged_config}
     return json.dumps(merged_config, indent=2) + "\n"
 
 
@@ -144,7 +167,7 @@ Available generic dl-azure foundations:
 
 Use the compute wrapper for mounted Azure ML inputs and the streaming wrapper
 for direct blob reads from Azure storage. Streaming wrappers require an
-explicit `dataset.container_name` in config.
+explicit `dataset.azure.container_name` in config or `azure-config.json`.
 """
 
 from __future__ import annotations
@@ -312,7 +335,10 @@ class AzureInitExtension(InitExtension):
             "Azure support is enabled. Fill in `azure-config.json` and the "
             "`executors.azure` preset placeholders before submitting runs. Set "
             "`executor.command` when an Azure submission should run a custom "
-            "script instead of the default worker command."
+            "script instead of the default worker command. Configure storage, "
+            "downloads, cache, and prefetch under `dataset.azure`; these values "
+            "override the project file's `azure` defaults. File downloads prefer "
+            "AzCopy when installed and fall back to the SDK."
         )
         context.set_file(
             "AGENTS.md",

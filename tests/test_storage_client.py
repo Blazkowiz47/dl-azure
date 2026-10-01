@@ -20,7 +20,9 @@ def _client(monkeypatch: MonkeyPatch) -> AzureClientService:
         "dl_azure.storage.client.DefaultAzureCredential",
         lambda: "credential",
     )
-    return AzureClientService({"account_name": "demoaccount"})
+    return AzureClientService({
+        "account_name": "demoaccount", "download": {"backend": "sdk"},
+    })
 
 
 def test_get_blob_sas_url_generates_user_delegation_signature(
@@ -212,7 +214,7 @@ def test_container_client_cache_is_scoped_to_one_credential(
     assert second_calls == ["images"]
 
 
-def test_download_blob_streams_chunks_to_atomic_destination(
+def test_download_blob_streams_to_atomic_destination(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -223,8 +225,9 @@ def test_download_blob_streams_chunks_to_atomic_destination(
         client,
         "get_blob_client_pooled",
         lambda container_name, blob_path: SimpleNamespace(
-            download_blob=lambda: SimpleNamespace(
-                chunks=lambda: iter([b"first-", b"second"])
+            get_blob_properties=lambda **kwargs: SimpleNamespace(size=12, etag='"v1"'),
+            download_blob=lambda **kwargs: SimpleNamespace(
+                readinto=lambda handle: handle.write(b"first-second")
             )
         ),
     )
@@ -233,3 +236,42 @@ def test_download_blob_streams_chunks_to_atomic_destination(
     assert client.download_blob("datasets", "train/sample.tar", destination)
     assert destination.read_bytes() == b"first-second"
     assert not list(destination.parent.glob("*.part"))
+
+
+def test_download_failure_preserves_existing_destination(
+    tmp_path: Path, monkeypatch: MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = _client(monkeypatch)
+    destination = tmp_path / "data.bin"
+    destination.write_bytes(b"original")
+
+    def readinto(handle: object) -> None:
+        handle.write(b"partial")
+        raise OSError("Failed https://example.blob.core.windows.net/data?sig=secret")
+
+    monkeypatch.setattr(client, "get_blob_client_pooled", lambda *args: SimpleNamespace(
+        get_blob_properties=lambda **kwargs: SimpleNamespace(size=20, etag='"v1"'),
+        download_blob=lambda **kwargs: SimpleNamespace(readinto=readinto),
+    ))
+    assert client.download_blob("data", "data.bin", destination) is False
+    assert destination.read_bytes() == b"original"
+    assert not list(tmp_path.glob("*.part"))
+    assert "sig=secret" not in caplog.text
+
+
+def test_pooled_clients_inherit_nested_sdk_configuration(monkeypatch: MonkeyPatch) -> None:
+    _client(monkeypatch)
+    service = AzureClientService({"azure": {
+        "account_name": "demoaccount",
+        "download": {"sdk": {"chunk_size_mib": 16, "read_buffer_kib": 64}},
+    }})
+    client = service.get_blob_client_pooled("data", "file.bin")
+    try:
+        assert client._config.max_chunk_get_size == 16 * 1024**2
+        container = service.get_container_client("data")
+        transport = container._pipeline._transport
+        assert client._pipeline._transport._transport is transport
+        assert transport.connection_config.data_block_size == 64 * 1024
+        assert service.get_blob_url("data", "dir/a b%?#.bin").endswith("/dir/a%20b%25%3F%23.bin")
+    finally:
+        service.get_container_client("data").close()

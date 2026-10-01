@@ -22,17 +22,20 @@ the mounted filesystem.
 
 Required settings:
 
-- `dataset.container_name`
+- `dataset.azure.container_name` (or `container_name` in the project Azure config)
 - Azure storage config with `account_name`
 
 Azure storage config can come from:
 
-- `dataset.azure_config_path`, which defaults to `azure-config.json`
-- inline dataset config keys such as `account_name`, `subscription_id`,
+- `dataset.azure.config_path`, which defaults to `azure-config.json`
+- inline `dataset.azure` keys such as `account_name`, `subscription_id`,
   `resource_group`, `workspace_name`, and `tenant_id`
 
 The wrapper lists blob paths under the configured prefix and downloads images
 or metadata on demand through the shared Azure client service.
+The project's `azure` block supplies defaults; explicit dataset values override
+them. Flat project files and legacy dataset keys remain supported. File downloads
+prefer AzCopy with SDK fallback; see [transfer settings](4_blob_downloads.md).
 
 When callers request a shareable blob URL, the client generates a
 user-delegation SAS through `DefaultAzureCredential`. The authenticated identity
@@ -46,7 +49,7 @@ The blob cache is only used by the streaming wrappers. Compute wrappers read
 directly from the resolved local or mounted filesystem path and do not use the
 Azure blob cache.
 
-Streaming cache settings live under `dataset.cache`:
+Streaming cache settings live under `dataset.azure.cache`:
 
 - `enabled`
 - `cache_dir`
@@ -75,33 +78,38 @@ shard stream by distributed rank and DataLoader worker before opening archives.
 
 The on-demand local shard cache is enabled by default and is required for this
 wrapper. It removes SAS query strings before shard URLs enter sample metadata;
-`dataset.cache.enabled: false` is rejected. The cache is lazy: WebDataset still
+`dataset.azure.cache.enabled: false` is rejected. The cache is lazy: WebDataset still
 splits shards by rank and worker before the selected shard is downloaded. SAS
 expiry defaults to seven days and can be changed with
-`dataset.sas_expiry_hours` when a new token is generated in the worker.
+`dataset.azure.sas_expiry_hours` when a new token is generated in the worker.
 
 ```yaml
 dataset:
-  cache:
-    enabled: true
-    cache_dir: /mnt/localssd/dl-azure
-    cache_size_gb: 3000
-    download_retries: 5
-    retry_backoff_seconds: 1
-    retry_backoff_max_seconds: 30
-    retry_jitter: true
-    connection_timeout_seconds: 20
-    read_timeout_seconds: 120
-    lock_timeout_seconds: 3600
+  azure:
+    cache:
+      enabled: true
+      cache_dir: /mnt/localssd/dl-azure
+      cache_size_gb: 3000
+      download_retries: 5
+      retry_backoff_seconds: 1
+      retry_backoff_max_seconds: 30
+      retry_jitter: true
+      lock_timeout_seconds: 3600
+    download:
+      sdk:
+        connection_timeout_seconds: 20
+        read_timeout_seconds: 120
 ```
 
 `cache_size_gb` defaults to 3000 and is converted internally using 1024^3 bytes
 per GB. The old byte-based `cache_size` key is rejected to avoid unit mistakes.
 `download_retries` is the number of retries after the initial attempt.
 
-Each retry creates a fresh Azure client and downloader. Failed partial files
-are removed, and a completed file is promoted atomically only after its ETag
-condition, blob size, Azure content validation, and tar format have passed. A
+Each retry creates a fresh Azure client. Failed partial files are removed, and
+a completed file is promoted atomically only after source consistency, blob
+size, any stored MD5, and tar format have been checked. SDK fallback retains
+transactional MD5 validation by default; AzCopy uses stored blob MD5 when
+available. The [download settings](4_blob_downloads.md) describe that difference. A
 per-shard file lock prevents workers and ranks sharing a host cache from
 downloading the same URL concurrently. SAS query strings are excluded from
 cache identities, so renewed tokens reuse the same shard file.
@@ -126,15 +134,15 @@ separate from backend access.
 
 Override `get_shard_cache_path(blob_path)` to choose a shard's destination.
 The input is container-relative and decoded once. Return an absolute path for
-any data root, a relative path beneath `cache.cache_dir`, or `None` for the
+any data root, a relative path beneath `azure.cache.cache_dir`, or `None` for the
 default hashed filename. Keep the mapping stable and distinguish blobs sharing
 cache state; concrete classes can incorporate account/container names as needed.
 
 `create_shard_cache()` serves streaming, prefetching, and indexed paths. Direct
 `AzureShardCache` consumers can supply `path_resolver(public_url)`; it receives
-the encoded URL path with query and fragment removed. `cache.state_dir` selects
+the encoded URL path with query and fragment removed. `azure.cache.state_dir` selects
 locks, pins, destination records, and size reservations independently of the
-data root. When omitted, state remains beside `cache.cache_dir`. Processes
+data root. When omitted, state remains beside `azure.cache.cache_dir`. Processes
 sharing destinations must share state, the size limit, and the mapping.
 
 Locks and pins use resolved full destinations, so equal basenames in different
@@ -190,7 +198,7 @@ with wrapper.cached_shard_sources(sources) as local_sources:
     dataset.close()
 ```
 
-Enable `dataset.track_shard_progress` and `dataset.prefetch`. The trainer owns
+Enable `dataset.track_shard_progress` and `dataset.azure.prefetch`. The trainer owns
 `replacement_pairs`, training, and iterator replacement. Plan keys here match
 shard IDs, which default to container-relative source paths. Eight workers
 are shared across all selected shards. Supply eligible counts or finite budgets
@@ -206,15 +214,16 @@ Worker datasets carry paths and metadata, never lease contexts or controllers.
 
 `AzureStreamingTarShardWrapper.create_shard_prefetcher()` creates a controller
 owned by the trainer. It uses the same cache as normal WebDataset reads.
-Configure it under `dataset.prefetch`:
+Configure it under `dataset.azure.prefetch`:
 
 ```yaml
 dataset:
-  prefetch:
-    enabled: true                 # Default: false
-    trigger_fraction: 0.5         # Inclusive range: 0 to 1
-    max_concurrent_downloads: 2   # Positive integer; per controller
-    max_pending_shards: 32        # Positive integer; distinct upcoming shards
+  azure:
+    prefetch:
+      enabled: true                 # Default: false
+      trigger_fraction: 0.5         # Inclusive range: 0 to 1
+      max_concurrent_downloads: 2   # Positive integer; per controller
+      max_pending_shards: 32        # Positive integer; distinct upcoming shards
 ```
 
 Configuration is checked when the controller is created. A fraction of `0`
@@ -377,6 +386,6 @@ The Azure executor:
 
 - use `--dry-run` first
 - keep Azure config files at the experiment repo root
-- set `dataset.container_name` explicitly for streaming datasets
+- set `dataset.azure.container_name` for streaming datasets, inline or in the project config
 - prefer sweep submission over trying to force Azure through the local-only
   single-run CLI

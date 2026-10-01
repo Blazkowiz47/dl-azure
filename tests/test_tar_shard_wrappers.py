@@ -179,7 +179,7 @@ def test_streaming_tar_cache_retries_whole_azure_downloads(
         def close(self) -> None:
             return None
 
-    def from_blob_url(url: str) -> _FakeBlobClient:
+    def from_blob_url(url: str, **kwargs: Any) -> _FakeBlobClient:
         attempts.append(url)
         return _FakeBlobClient(fail=len(attempts) == 1)
 
@@ -207,6 +207,7 @@ def test_streaming_tar_cache_retries_whole_azure_downloads(
             "num_workers": 0,
             "shuffle": False,
             "auto_split": False,
+            "download": {"backend": "sdk"},
         }
     )
 
@@ -265,7 +266,7 @@ def test_azure_cache_errors_do_not_expose_sas_token(
     """Download failures must not surface a signed URL in errors or logs."""
     shard_url = "https://demo.blob.core.windows.net/data/shard.tar?sig=secret"
 
-    def fail_download(url: str) -> Any:
+    def fail_download(url: str, **kwargs: Any) -> Any:
         raise OSError(f"Could not open {url}")
 
     monkeypatch.setattr(
@@ -288,3 +289,31 @@ def test_azure_cache_errors_do_not_expose_sas_token(
 
     assert "sig=secret" not in str(error.value)
     assert "?" not in str(error.value)
+
+
+def test_nested_cache_download_and_prefetch_options_share_one_factory(
+    tmp_path: Path, monkeypatch: Any,
+) -> None:
+    monkeypatch.setattr(
+        "dl_azure.datasets.base.AzureClientService", lambda config: SimpleNamespace(),
+    )
+    wrapper = _StreamingTarWrapper({
+        "auto_split": False,
+        "cache": {"cache_dir": str(tmp_path / "old-cache"), "read_timeout_seconds": 11},
+        "azure": {
+            "account_name": "demo", "container_name": "data",
+            "config_path": str(tmp_path / "missing.json"),
+            "cache": {"cache_dir": str(tmp_path / "nested-cache"), "cache_size_gb": 2},
+            "download": {"backend": "sdk", "sdk": {"read_timeout_seconds": 19}},
+            "prefetch": {"enabled": True, "trigger_fraction": 0.25},
+        },
+    })
+    cache = wrapper.create_shard_cache()
+    assert cache.cache_dir == tmp_path / "nested-cache"
+    assert cache.cache_size_bytes == 2 * 1024**3
+    assert cache.downloader.backend == "sdk"
+    assert cache.downloader.property_options["read_timeout"] == 19
+    assert cache.downloader.sdk["validate_content"] is True
+    with wrapper.create_shard_prefetcher() as prefetch:
+        assert prefetch.trigger_fraction == 0.25
+        assert prefetch.cache.downloader.sdk == cache.downloader.sdk

@@ -22,6 +22,8 @@ from azure.storage.blob import (
 
 from dl_core.core import BaseExecutor, config_field, register_executor
 
+from dl_azure.config import normalize_azure_config
+
 _AMLIGNORE_BEGIN = "# BEGIN dl-azure managed block"
 _AMLIGNORE_END = "# END dl-azure managed block"
 _COMMAND_PLACEHOLDER_PATTERN = re.compile(
@@ -435,7 +437,7 @@ class AzureComputeExecutor(BaseExecutor):
                     )
             else:
                 with open(self.azure_config_path, "r", encoding="utf-8") as f:
-                    self.azure_config = json.load(f)
+                    self.azure_config = normalize_azure_config(json.load(f))
 
             if self.dry_run:
                 self.logger.info("[DRY RUN] Would setup Azure ML executor:")

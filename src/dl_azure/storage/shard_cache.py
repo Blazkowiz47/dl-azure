@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
 
-from azure.core import MatchConditions
 from azure.core.exceptions import (
     HttpResponseError,
     ResourceModifiedError,
@@ -28,6 +27,8 @@ from azure.core.exceptions import (
 )
 from azure.storage.blob import BlobClient
 from filelock import FileLock, Timeout
+
+from dl_azure.storage.download import AzureDownloader
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class AzureShardCache:
         connection_timeout_seconds: float = 20,
         read_timeout_seconds: float = 120,
         lock_timeout_seconds: float = 3600,
+        download_config: dict[str, Any] | None = None,
     ) -> None:
         if cache_size_bytes <= 0:
             raise ValueError("cache_size_bytes must be greater than zero")
@@ -95,6 +97,12 @@ class AzureShardCache:
         self.connection_timeout_seconds = connection_timeout_seconds
         self.read_timeout_seconds = read_timeout_seconds
         self.lock_timeout_seconds = lock_timeout_seconds
+        self.downloader = AzureDownloader(
+            download_config,
+            validate_content=True,
+            connection_timeout_seconds=connection_timeout_seconds,
+            read_timeout_seconds=read_timeout_seconds,
+        )
         # Adopt files from the default cache written before destination records
         # existed. Custom destinations are registered only when explicitly used.
         with self._guard():
@@ -312,12 +320,12 @@ class AzureShardCache:
                     client: BlobClient | None = None
                     reserved = False
                     try:
-                        client = BlobClient.from_blob_url(url)
-                        request_options = {
-                            "connection_timeout": self.connection_timeout_seconds,
-                            "read_timeout": self.read_timeout_seconds,
-                        }
-                        properties = client.get_blob_properties(**request_options)
+                        client = BlobClient.from_blob_url(
+                            url, **self.downloader.client_options()
+                        )
+                        properties = client.get_blob_properties(
+                            **self.downloader.property_options
+                        )
                         expected_size = int(properties.size)
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         descriptor, temporary_name = tempfile.mkstemp(
@@ -328,19 +336,11 @@ class AzureShardCache:
                         temporary_path = Path(temporary_name)
                         self._reserve_space(destination, expected_size, temporary_path)
                         reserved = True
-                        download_options = dict(request_options)
-                        etag = getattr(properties, "etag", None)
-                        if etag is not None:
-                            download_options.update(
-                                etag=etag, match_condition=MatchConditions.IfNotModified
-                            )
-                        download_options["validate_content"] = True
-                        downloader = client.download_blob(**download_options)
-                        with os.fdopen(descriptor, "wb") as handle:
-                            descriptor = -1
-                            downloaded_size = downloader.readinto(handle)
-                        if downloaded_size != expected_size:
-                            raise OSError(f"Azure shard size mismatch for {public_url}")
+                        os.close(descriptor)
+                        descriptor = -1
+                        self.downloader.download(
+                            client, temporary_path, properties=properties, azcopy_url=url
+                        )
                         try:
                             with tarfile.open(temporary_path, "r:*") as archive:
                                 archive.next()

@@ -5,17 +5,16 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.27`.
+Current release: `deep-learning-azure==0.0.28`.
 Requires `deep-learning-core>=0.1.12,<0.2`.
 
-## What's New in 0.0.27?
+## What's New in 0.0.28?
 
-- concrete wrappers choose shard destinations through `get_shard_cache_path()`;
-  streaming reads, indexed reads, and prefetching share the cache factory
-- nested and absolute destinations have consistent locking, reservations,
-  capacity accounting, and eviction
-- `cached_shard_sources()` supplies reserved local paths for core's indexed
-  reader and completed-batch shard progress
+- file downloads and the shard cache prefer AzCopy with configurable SDK fallback
+- Azure settings share an `azure` namespace, with project defaults and dataset
+  overrides; existing flat configs remain supported
+- SDK downloads support parallel range requests and configurable pools, chunks,
+  read buffers, and timeouts; cache path hooks and reservations stay in place
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -179,9 +178,9 @@ instead of relying on an Azure ML input mount:
 - `AzureStreamingMultiFrameWrapper`
 - `AzureStreamingTarShardWrapper`
 
-Streaming wrappers require `dataset.container_name` and an Azure storage config
-that provides `account_name`, either in `azure-config.json` or inline in the
-dataset config.
+Streaming wrappers read Azure settings from `dataset.azure`, overriding the
+`azure` defaults in `azure-config.json`. Set `container_name` and `account_name`
+in either location. Existing flat dataset keys and project files remain valid.
 
 `AzureClientService.get_blob_sas_url()` issues a user-delegation SAS through
 `DefaultAzureCredential`; it never silently returns an unsigned URL. The active
@@ -190,6 +189,37 @@ required Blob Data role for the requested operation.
 If a child job's dataset uses a different storage account from its job SAS,
 the client uses managed identity for that dataset instead of the other account's
 token; grant the job identity access to the dataset account.
+
+File downloads through `AzureClientService.download_blob()` and the tar cache
+prefer AzCopy, falling back to the SDK if it is missing or a transfer fails.
+Missing AzCopy is detected once per executable per process. A transfer or SAS
+signing failure affects only that file. Images and JSON read into memory use
+the SDK directly.
+
+```yaml
+dataset:
+  azure:
+    config_path: azure-config.json
+    account_name: my-storage-account
+    container_name: datasets
+    download:
+      backend: azcopy            # Or sdk
+      fallback_to_sdk: true
+      azcopy:
+        concurrency: null       # Inherit environment or AzCopy defaults
+        buffer_gb: null
+      sdk:
+        max_concurrency: 32
+        connection_pool_size: 32
+        chunk_size_mib: 4
+        read_buffer_kib: 64
+```
+
+Install AzCopy separately to use it; no separate `azcopy login` is needed when
+the Azure client can supply a SAS URL. Downloads keep temporary files separate
+from final destinations and verify size and any stored MD5 before promotion.
+See [download settings and validation](readme/technical/4_blob_downloads.md) for
+timeouts, larger SDK chunks, and direct utility usage.
 
 Frame wrappers share a few image-specific settings:
 
@@ -216,7 +246,6 @@ wrapper still performs mount resolution or SAS authentication.
 ```yaml
 dataset:
   name: my_azure_tar_dataset
-  container_name: datasets
   auto_split: false
   shards:
     train:
@@ -226,15 +255,19 @@ dataset:
         group: real
   required_extensions: [png, json]
   persistent_workers: true
-  cache:
-    enabled: true
-    cache_dir: /mnt/localssd/dl-azure
-    cache_size_gb: 3000
-    download_retries: 5
-    retry_backoff_seconds: 1
-    retry_backoff_max_seconds: 30
-    connection_timeout_seconds: 20
-    read_timeout_seconds: 120
+  azure:
+    container_name: datasets
+    cache:
+      enabled: true
+      cache_dir: /mnt/localssd/dl-azure
+      cache_size_gb: 3000
+      download_retries: 5
+      retry_backoff_seconds: 1
+      retry_backoff_max_seconds: 30
+    download:
+      sdk:
+        connection_timeout_seconds: 20
+        read_timeout_seconds: 120
   webdataset:
     shard_shuffle: 100
     sample_shuffle: 10000
@@ -245,7 +278,7 @@ dataset:
 ```
 
 `download_retries` counts retries after the initial attempt. Retry jitter is
-enabled by default. Set `cache.retry_jitter: false` only when fixed delays are
+enabled by default. Set `azure.cache.retry_jitter: false` only when fixed delays are
 required. Authentication, permission, and missing-blob errors are not retried.
 Streaming tar shards use the local cache by default so sample metadata and
 download errors do not expose signed URL query strings.
@@ -255,11 +288,12 @@ through `wrapper.create_shard_prefetcher()`:
 
 ```yaml
 dataset:
-  prefetch:
-    enabled: true
-    trigger_fraction: 0.5
-    max_concurrent_downloads: 2
-    max_pending_shards: 32
+  azure:
+    prefetch:
+      enabled: true
+      trigger_fraction: 0.5
+      max_concurrent_downloads: 2
+      max_pending_shards: 32
 ```
 
 Create one plan per active shard slot, or one plan for a whole cycle. The
@@ -288,12 +322,12 @@ class ProjectTarWrapper(AzureStreamingTarShardWrapper):
 ```
 
 The hook receives a container-relative blob path. Absolute results may use any
-data root; relative results are beneath `cache.cache_dir`. Returning `None`
+data root; relative results are beneath `azure.cache.cache_dir`. Returning `None`
 uses the existing hashed filename. `create_shard_cache()` is the shared factory
 for streaming and prefetching. Direct `AzureShardCache` consumers can supply a
 `path_resolver` receiving the public blob URL without SAS query strings.
 
-`cache.state_dir` optionally selects where locks, pins, and destination records
+`azure.cache.state_dir` optionally selects where locks, pins, and destination records
 live, independently of shard destinations. All processes sharing destinations
 must share cache state, the size limit, and the path mapping. Eviction accounts
 for registered shard files across directories and preserves reservations.

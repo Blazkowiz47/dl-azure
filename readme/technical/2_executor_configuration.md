@@ -60,7 +60,8 @@ executor:
 
 The executor also reads:
 
-- `azure-config.json` by default, or the configured `executor.azure_config_path`
+- `azure-config.json` by default, or the configured `executor.azure_config_path`;
+  workspace fields may be under `azure` or in the legacy flat project format
 - `AZURE_ACCESS_KEY` on the submitting machine when generating a read-only SAS
   token for child jobs; the account key itself is not sent to Azure ML jobs
 

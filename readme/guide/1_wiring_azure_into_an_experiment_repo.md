@@ -62,9 +62,11 @@ environment already provides the interpreter and installed packages.
 
 ## Step 4: Fill In `azure-config.json`
 
-The scaffold creates `azure-config.json` in the repository root. Replace the
-placeholder values before submission. If you need to keep that file elsewhere,
-set `executor.azure_config_path` to the alternate location.
+The scaffold creates `azure-config.json` in the repository root, with workspace
+and storage defaults under `azure`. Replace the placeholder values before
+submission. If you keep the file elsewhere, set `executor.azure_config_path`
+for submission and `dataset.azure.config_path` for streaming datasets. Existing
+flat project files remain supported.
 
 ## Step 5: Choose the Dataset Wrapper and Path
 
@@ -89,9 +91,11 @@ If you also want the same config to work outside Azure ML, keep
 `dataset.allow_local_fallback: true` and point `dataset.local_fallback_root`
 at a compatible local dataset root.
 
-For streaming datasets, set `dataset.container_name` and provide Azure storage
-credentials through `azure-config.json` or inline dataset config fields such as
-`account_name`.
+For streaming datasets, set `dataset.azure.container_name` and provide the
+storage `account_name` through `azure-config.json` or `dataset.azure`.
+Connection, download, cache, and prefetch settings belong in that block.
+See [Azure download settings](../technical/4_blob_downloads.md) for AzCopy and
+SDK configuration.
 
 A typical multiframe dataset block looks like this:
 

@@ -3,6 +3,21 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## 0.0.28
+
+- generic blob-to-file downloads and the shard cache share an AzCopy-first
+  downloader with SDK fallback; missing executables are remembered per process,
+  while transfer and SAS-signing failures affect only the current file
+- project defaults and `dataset.azure` settings merge recursively, covering
+  storage, downloads, cache, and prefetch; flat configs remain supported
+- SDK range concurrency, connection pools, chunk sizes, transport read buffers,
+  content validation, and timeouts are configurable; file downloads use
+  `readinto()` for parallel ranges
+- transfers verify source consistency, size, and stored MD5 when available;
+  the cache keeps its tar validation, atomic writes, path hooks, and reservations
+- scaffolding writes nested Azure defaults and preserves existing config formats
+- requires `deep-learning-core>=0.1.12,<0.2`; no core version bump is needed
+
 ## 0.0.27
 
 - concrete tar wrappers choose destinations through a public path hook;

@@ -8,7 +8,6 @@ import os
 import random
 import re
 from abc import ABC, abstractmethod
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,7 @@ import torch
 from dl_core.core.base_dataset import BaseWrapper, FrameWrapper
 from dl_core.utils import crop_face_with_bbox
 
+from dl_azure.config import merge_azure_config, normalize_azure_config
 from dl_azure.storage import AzureBlobCache, AzureClientService
 
 logger = logging.getLogger(__name__)
@@ -153,14 +153,20 @@ class AzureBlobMixin(ABC):
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
+        azure_options = self.config.get("azure", {})
+        if not isinstance(azure_options, dict):
+            raise TypeError("dataset.azure must be a mapping")
         self.azure_config_path = Path(
-            self.config.get("azure_config_path", "azure-config.json")
+            azure_options.get(
+                "config_path", self.config.get("azure_config_path", "azure-config.json")
+            )
         ).expanduser()
         self.azure_config = self._load_azure_config()
-        self.container_name = self.config.get("container_name")
+        self.container_name = self.azure_config.get("container_name")
         if not self.container_name:
             raise ValueError(
-                "Azure streaming datasets require 'container_name' in dataset config."
+                "Azure streaming datasets require 'container_name' in dataset.azure "
+                "or azure-config.json."
             )
         self.azure_service = AzureClientService(self.azure_config)
 
@@ -170,17 +176,20 @@ class AzureBlobMixin(ABC):
         azure_config: dict[str, Any] = {}
         if self.azure_config_path.exists():
             with open(self.azure_config_path, "r", encoding="utf-8") as handle:
-                azure_config.update(json.load(handle))
+                azure_config = normalize_azure_config(json.load(handle))
 
-        for key in [
-            "account_name",
-            "subscription_id",
-            "resource_group",
-            "workspace_name",
-            "tenant_id",
-        ]:
-            if key in self.config:
-                azure_config[key] = self.config[key]
+        legacy_options = {
+            key: self.config[key]
+            for key in (
+                "account_name", "subscription_id", "resource_group",
+                "workspace_name", "tenant_id", "container_name",
+                "sas_expiry_hours", "download", "cache", "prefetch",
+            )
+            if key in self.config
+        }
+        azure_config = merge_azure_config(
+            azure_config, legacy_options, self.config.get("azure", {})
+        )
 
         if "account_name" not in azure_config:
             raise ValueError(
@@ -217,7 +226,9 @@ class AzureStreamingMixin(AzureBlobMixin):
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
-        cache_config = self.config.get("cache", {})
+        cache_config = self.azure_config.get("cache", {})
+        if not isinstance(cache_config, dict):
+            raise TypeError("dataset.azure.cache must be a mapping")
         cache_dir = Path(
             cache_config.get("cache_dir", "~/.cache/dl-azure")
         ).expanduser()
@@ -241,7 +252,10 @@ class AzureStreamingMixin(AzureBlobMixin):
         blob_client = self.azure_service.get_blob_client_pooled(
             self.container_name, relative_path
         )
-        data = json.loads(blob_client.download_blob().readall())
+        payload = blob_client.download_blob(
+            **self.azure_service.downloader.request_options
+        ).readall()
+        data = json.loads(payload)
         if use_cache and self.cache is not None:
             self.cache.cache_json_async(relative_path, data)
         return data
@@ -259,9 +273,11 @@ class AzureStreamingMixin(AzureBlobMixin):
         blob_client = self.azure_service.get_blob_client_pooled(
             self.container_name, relative_path
         )
-        with BytesIO(blob_client.download_blob().readall()) as buffer:
-            nparr = np.frombuffer(buffer.read(), np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        payload = blob_client.download_blob(
+            **self.azure_service.downloader.request_options
+        ).readall()
+        nparr = np.frombuffer(payload, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if image is None:
             return None
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

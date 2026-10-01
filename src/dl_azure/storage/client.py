@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import (
@@ -16,6 +17,9 @@ from azure.storage.blob import (
     ContainerClient,
     generate_blob_sas,
 )
+
+from dl_azure.config import normalize_azure_config
+from dl_azure.storage.download import AzureDownloader
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +42,12 @@ class AzureClientService:
         Args:
             config: Azure configuration containing 'account_name'
         """
-        self.config = config
-        self.account_name = config.get("account_name")
+        self.config = normalize_azure_config(config)
+        self.account_name = self.config.get("account_name")
 
         if not self.account_name:
             raise ValueError("Azure config must contain 'account_name'")
+        self.downloader = AzureDownloader(self.config.get("download"))
 
         configured_account = os.environ.get("AZURE_STORAGE_ACCOUNT")
         if configured_account and configured_account != self.account_name:
@@ -94,12 +99,13 @@ class AzureClientService:
         Returns:
             BlobClient instance
         """
-        container_url = self.get_container_url(container_name)
-        blob_url = f"{container_url}/{blob_path}"
+        blob_url = self.get_blob_url(container_name, blob_path)
 
         logger.debug(f"Creating BlobClient for: {blob_url}")
         try:
-            client = BlobClient.from_blob_url(blob_url, credential=self.credential)
+            client = BlobClient.from_blob_url(
+                blob_url, credential=self.credential, **self.downloader.client_options()
+            )
             logger.debug(f"Successfully created BlobClient for {blob_path}")
             return client
         except Exception as e:
@@ -121,7 +127,8 @@ class AzureClientService:
         logger.debug(f"Creating ContainerClient for: {container_url}")
         try:
             client = ContainerClient.from_container_url(
-                container_url, credential=self.credential
+                container_url, credential=self.credential,
+                **self.downloader.client_options(),
             )
             logger.debug(f"Successfully created ContainerClient for {container_name}")
             return client
@@ -312,21 +319,24 @@ class AzureClientService:
                 prefix=f".{local_path.name}.",
                 suffix=".part",
             )
+            os.close(file_descriptor)
             try:
-                with os.fdopen(file_descriptor, "wb") as handle:
-                    download_stream = blob_client.download_blob()
-                    for chunk in download_stream.chunks():
-                        handle.write(chunk)
+                self.downloader.download(
+                    blob_client,
+                    Path(temporary_name),
+                    azcopy_url=lambda: self.get_blob_sas_url(container_name, blob_path),
+                )
                 os.replace(temporary_name, local_path)
-            except Exception:
+            finally:
                 Path(temporary_name).unlink(missing_ok=True)
-                raise
 
             logger.debug(f"Downloaded {blob_path} to {local_path}")
             return True
 
-        except Exception as e:
-            logger.error(f"Failed to download {blob_path} to {local_path}: {e}")
+        except Exception as exc:
+            logger.error(
+                "Failed to download %s to %s: %s", blob_path, local_path, type(exc).__name__
+            )
             return False
 
     def blob_exists(self, container_name: str, blob_path: str) -> bool:
@@ -389,7 +399,10 @@ class AzureClientService:
         Returns:
             Blob URL
         """
-        return f"https://{self.account_name}.blob.core.windows.net/{container_name}/{blob_path}"
+        return (
+            f"{self.get_container_url(container_name)}/"
+            f"{quote(blob_path, safe='/')}"
+        )
 
     def get_blob_sas_url(
         self,

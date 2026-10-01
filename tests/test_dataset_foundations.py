@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+import pytest
 
 from dl_azure.datasets.base import (
     AzureComputeMultiFrameWrapper,
     AzureComputeWrapper,
+    AzureStreamingWrapper,
     sort_frame_paths,
 )
 
@@ -24,6 +27,14 @@ class DummyComputeWrapper(AzureComputeWrapper):
 
     def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
         del split
+        return file_dict
+
+
+class DummyStreamingWrapper(AzureStreamingWrapper):
+    def get_file_list(self, split: str) -> list[dict[str, Any]]:
+        return []
+
+    def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
         return file_dict
 
 
@@ -183,3 +194,70 @@ def test_processed_frame_cache_isolated_by_margin_and_size() -> None:
     wrappers[1]._maybe_store_resized_cache("frame.jpg", image)
     assert wrappers[2]._maybe_load_resized_cache("frame.jpg") is None
     assert len(images) == 2
+
+
+def test_nested_azure_config_merges_defaults_legacy_and_dataset_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_file = tmp_path / "azure.json"
+    config_file.write_text(json.dumps({"azure": {
+        "account_name": "project-account", "container_name": "project-container",
+        "download": {"backend": "sdk", "sdk": {
+            "max_concurrency": 8, "read_buffer_kib": 64,
+        }},
+        "cache": {"enabled": False, "cache_splits": ["test"]},
+    }}))
+    captured = []
+    monkeypatch.setattr("dl_azure.datasets.base.AzureClientService", lambda config: captured.append(config))
+    wrapper = DummyStreamingWrapper({
+        "account_name": "legacy-account", "container_name": "legacy-container",
+        "azure_config_path": str(tmp_path / "wrong.json"),
+        "cache": {"cache_splits": ["train"]},
+        "azure": {
+            "config_path": str(config_file), "account_name": "dataset-account",
+            "download": {"sdk": {"max_concurrency": 32}},
+            "cache": {"cache_dir": str(tmp_path / "cache")},
+        },
+    })
+    assert wrapper.azure_config_path == config_file
+    assert wrapper.container_name == "legacy-container"
+    assert wrapper.cache is None and wrapper.cache_splits == {"train"}
+    assert captured[0]["account_name"] == "dataset-account"
+    assert captured[0]["download"] == {"backend": "sdk", "sdk": {
+        "max_concurrency": 32, "read_buffer_kib": 64,
+    }}
+    assert captured[0]["cache"]["cache_dir"] == str(tmp_path / "cache")
+
+
+def test_images_and_json_use_configured_sdk_without_azcopy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cv2
+    from dl_azure.storage.download import AzureDownloader
+
+    calls = []
+    image = np.zeros((3, 4, 3), dtype=np.uint8)
+    encoded = cv2.imencode(".png", image)[1].tobytes()
+    payloads = {"image.png": encoded, "metadata.json": b'{"label": 1}'}
+    downloader = AzureDownloader({"sdk": {"max_concurrency": 8}})
+
+    def get_blob_client(container: str, path: str) -> Any:
+        def download_blob(**kwargs: Any) -> Any:
+            calls.append((path, kwargs))
+            return SimpleNamespace(readall=lambda: payloads[path])
+        return SimpleNamespace(download_blob=download_blob)
+
+    service = SimpleNamespace(downloader=downloader, get_blob_client_pooled=get_blob_client)
+    monkeypatch.setattr("dl_azure.datasets.base.AzureClientService", lambda config: service)
+    monkeypatch.setattr(
+        "dl_azure.storage.download.subprocess.run",
+        lambda *args, **kwargs: pytest.fail("Memory reads must not invoke AzCopy"),
+    )
+    wrapper = DummyStreamingWrapper({"azure": {
+        "account_name": "demo", "container_name": "data",
+        "config_path": str(tmp_path / "missing.json"), "cache": {"enabled": False},
+    }})
+    assert wrapper.load_json_data("metadata.json") == {"label": 1}
+    assert np.array_equal(wrapper.load_image_data("image.png"), image)
+    assert [path for path, _ in calls] == ["metadata.json", "image.png"]
+    assert all(options["max_concurrency"] == 8 for _, options in calls)

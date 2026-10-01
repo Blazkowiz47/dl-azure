@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+import json
 import os
 from pathlib import Path
 import threading
@@ -167,6 +168,21 @@ def test_setup_rejects_old_core_before_creating_azure_jobs(
         executor.setup(total_runs=1)
 
     assert executor.parent_job_name is None
+
+
+def test_executor_reads_workspace_from_nested_azure_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "azure.json"
+    config_path.write_text(json.dumps({"azure": {
+        "subscription_id": "subscription", "resource_group": "group",
+        "workspace_name": "workspace", "account_name": "account",
+    }}))
+    executor = AzureComputeExecutor(
+        {"executor": {"compute_target": "gpu", "azure_config_path": str(config_path)}},
+        "demo", "sweep-1", dry_run=True,
+    )
+    executor.setup(total_runs=1)
+    assert executor.azure_config["workspace_name"] == "workspace"
+    assert executor.azure_config["account_name"] == "account"
 
 
 def test_azure_executor_reads_compute_target_from_config() -> None:

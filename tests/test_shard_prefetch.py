@@ -44,7 +44,7 @@ def blobs(monkeypatch: Any) -> Any:
     state.gate.set()
 
     class Client:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, **kwargs: Any) -> None:
             self.url = url
 
         def get_blob_properties(self, **kwargs: Any) -> Any:
@@ -72,8 +72,13 @@ def blobs(monkeypatch: Any) -> Any:
             pass
 
     monkeypatch.setattr("dl_azure.storage.shard_cache.BlobClient.from_blob_url", Client)
+    monkeypatch.setattr("dl_azure.storage.download.shutil.which", lambda executable: None)
+    from dl_azure.storage.download import _AZCOPY_PATHS
+
+    _AZCOPY_PATHS.clear()
     yield state
     state.gate.set()
+    _AZCOPY_PATHS.clear()
 
 
 def _cache(tmp_path: Path, *, shards: int = 20) -> AzureShardCache:
@@ -307,6 +312,35 @@ def test_custom_destinations_keep_same_basenames_distinct(
         assert first.is_file()
         assert not second.exists()
     assert len(blobs.calls) == 3
+
+
+def test_azcopy_download_keeps_cache_paths_and_reservations(
+    tmp_path: Path, blobs: Any, monkeypatch: Any,
+) -> None:
+    calls = []
+    monkeypatch.setattr("dl_azure.storage.download.shutil.which", lambda name: "/installed/azcopy")
+
+    def run(command: list[str], **kwargs: Any) -> Any:
+        calls.append(command[2])
+        Path(command[3]).write_bytes(blobs.payload)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr("dl_azure.storage.download.subprocess.run", run)
+    cache = AzureShardCache(
+        str(tmp_path / "cache"), cache_size_bytes=20480,
+        path_resolver=_nested_destination,
+    )
+    first_url = _url("first/same")
+    first = cache.ensure(first_url)
+    with cache.reserve(first_url):
+        second = cache.ensure(_url("second/same"))
+        cache.ensure(_url("third/same"))
+        assert first.exists() and not second.exists()
+    assert first == tmp_path / "cache/first/same.tar"
+    assert calls == [first_url, _url("second/same"), _url("third/same")]
+    assert not blobs.calls
+    assert not list(cache.part_dir.iterdir())
+    assert not list(cache.cache_dir.rglob("*.part"))
 
 
 def test_absolute_destination_and_state_directory(

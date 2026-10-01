@@ -32,7 +32,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
 
     def __init__(self, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config, **kwargs)
-        cache_config = self.config.get("cache") or {}
+        cache_config = self.azure_config.get("cache") or {}
         if not isinstance(cache_config, dict):
             raise TypeError("Azure tar cache configuration must be a mapping")
         if not cache_config.get("enabled", True):
@@ -86,6 +86,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
             "lock_timeout_seconds": float(
                 cache_config.get("lock_timeout_seconds", 3600)
             ),
+            "download_config": self.azure_config.get("download"),
         }
         if cache_config.get("state_dir") is not None:
             self._azure_shard_cache_options["state_dir"] = cache_config["state_dir"]
@@ -94,7 +95,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
         """Return a project-chosen destination, or None for the default cache.
 
         blob_path is container-relative. Return an absolute path for any data
-        root, or a relative path beneath cache.cache_dir. Keep mappings stable
+        root, or a relative path beneath azure.cache.cache_dir. Keep mappings stable
         and distinct for different blobs sharing the same cache state directory.
         """
         return None
@@ -166,9 +167,9 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
         Use it as a context manager in the trainer, outside DataLoader workers.
         Paths passed to plan() are logical container-relative blob paths.
         """
-        options = self.config.get("prefetch", {})
+        options = self.azure_config.get("prefetch", {})
         if not isinstance(options, dict):
-            raise TypeError("dataset.prefetch must be a mapping")
+            raise TypeError("dataset.azure.prefetch must be a mapping")
 
         def resolve_url(blob_path: str) -> str:
             if not blob_path.lower().endswith((".tar", ".tar.gz", ".tgz")):
@@ -176,7 +177,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
             return self.azure_service.get_blob_sas_url(
                 self.container_name,
                 blob_path,
-                expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
+                expiry_hours=int(self.azure_config.get("sas_expiry_hours", 168)),
             )
 
         return ShardPrefetcher(
@@ -271,7 +272,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
                 authenticated_url = self.azure_service.get_blob_sas_url(
                     self.container_name,
                     blob_path,
-                    expiry_hours=int(self.config.get("sas_expiry_hours", 168)),
+                    expiry_hours=int(self.azure_config.get("sas_expiry_hours", 168)),
                 )
                 parsed_url = urlsplit(authenticated_url)
                 authenticated_shards.append(
