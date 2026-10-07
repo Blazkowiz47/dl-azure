@@ -117,7 +117,7 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
     def cached_shard_sources(
         self, data: list[dict[str, Any]]
     ) -> Iterator[list[dict[str, Any]]]:
-        """Yield local sources while reserving every active file in this process.
+        """Stage local sources in parallel while reserving every active file.
 
         Build the indexed dataset and finish its DataLoader workers inside this
         context. Only paths and metadata belong in worker dataset instances.
@@ -157,8 +157,9 @@ class AzureStreamingTarShardWrapper(AzureBlobMixin, TarShardWrapper):
                 sources.append({**source, "shards": shards})
             # Protect the full active selection before admitting a miss, so
             # admission cannot evict a later shard in this same selection.
-            for url, local_shard in downloads:
-                local_shard["path"] = str(cache.ensure(url))
+            paths = cache.ensure_many(url for url, _ in downloads)
+            for (_, local_shard), path in zip(downloads, paths):
+                local_shard["path"] = str(path)
             yield sources
 
     def create_shard_prefetcher(self) -> ShardPrefetcher:

@@ -12,9 +12,11 @@ import re
 import shutil
 import tarfile
 import tempfile
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import FIRST_COMPLETED, CancelledError, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -273,6 +275,68 @@ class AzureShardCache:
                 self.part_dir / f"{self._cache_key(destination)}.size",
                 {"size": size, "partial": str(partial), "device": device},
             )
+
+    @contextlib.contextmanager
+    def _staging_slot(self, stopped: threading.Event) -> Iterator[None]:
+        # OS locks share the initial-staging budget across threads and ranks.
+        deadline = time.monotonic() + self.lock_timeout_seconds
+        while not stopped.is_set():
+            for slot in range(self.downloader.max_concurrent_files):
+                lease = FileLock(str(self.lock_dir / f"staging-{slot}.lock"))
+                try:
+                    lease.acquire(timeout=0)
+                except Timeout:
+                    continue
+                try:
+                    yield
+                finally:
+                    lease.release()
+                return
+            if self.lock_timeout_seconds >= 0 and time.monotonic() >= deadline:
+                raise Timeout(str(self.lock_dir / "staging-*.lock"))
+            stopped.wait(0.05)
+        raise CancelledError("Shard staging was cancelled")
+
+    def ensure_many(self, urls: Iterable[str]) -> list[Path]:
+        """Stage a reserved batch concurrently and return paths in input order.
+
+        download.max_concurrent_files is shared by staging callers using the
+        same cache state and limit. Retaining paths after return still requires
+        caller-owned reservations. Training prefetch has its own separate limit.
+        """
+        urls = list(urls)
+        stopped = threading.Event()
+        with contextlib.ExitStack() as reservations:
+            paths = [reservations.enter_context(self.reserve(url)) for url in urls]
+            if not urls:
+                return paths
+
+            def stage(url: str) -> Path:
+                with self._staging_slot(stopped):
+                    if stopped.is_set():
+                        raise CancelledError("Shard staging was cancelled")
+                    return self.ensure(url)
+
+            workers = min(len(urls), self.downloader.max_concurrent_files)
+            with ThreadPoolExecutor(
+                max_workers=workers, thread_name_prefix="azure-staging"
+            ) as executor:
+                pending = {}
+                next_index = 0
+                try:
+                    while pending or next_index < len(urls):
+                        while next_index < len(urls) and len(pending) < workers:
+                            pending[executor.submit(stage, urls[next_index])] = next_index
+                            next_index += 1
+                        done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            paths[pending.pop(future)] = future.result()
+                except BaseException:
+                    stopped.set()
+                    for future in pending:
+                        future.cancel()
+                    raise
+        return paths
 
     def ensure(self, url: str) -> Path:
         """Download on a miss; callers retaining the path should also reserve it."""

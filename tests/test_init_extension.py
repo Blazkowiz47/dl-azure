@@ -46,6 +46,7 @@ def test_existing_nested_azure_values_override_scaffold_defaults(tmp_path: Path)
     rendered = json.loads(_merged_azure_config(tmp_path))["azure"]
     assert rendered["account_name"] == "my-account"
     assert rendered["download"]["backend"] == "sdk"
+    assert rendered["download"]["max_concurrent_files"] == 4
     assert rendered["download"]["sdk"]["max_concurrency"] == 8
     assert rendered["download"]["sdk"]["read_buffer_kib"] == 64
 

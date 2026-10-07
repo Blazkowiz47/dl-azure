@@ -5,16 +5,18 @@ Public Azure integration layer for `deep-learning-core`.
 `deep-learning-azure` adds Azure ML execution, Azure storage helpers, and
 Azure-oriented dataset wrappers on top of `deep-learning-core`.
 
-Current release: `deep-learning-azure==0.0.28`.
+Current release: `deep-learning-azure==0.0.29`.
 Requires `deep-learning-core>=0.1.12,<0.2`.
 
-## What's New in 0.0.28?
+## What's New in 0.0.29?
 
-- file downloads and the shard cache prefer AzCopy with configurable SDK fallback
-- Azure settings share an `azure` namespace, with project defaults and dataset
-  overrides; existing flat configs remain supported
-- SDK downloads support parallel range requests and configurable pools, chunks,
-  read buffers, and timeouts; cache path hooks and reservations stay in place
+- initial indexed tar staging downloads files concurrently, with four transfers
+  by default and a configurable `azure.download.max_concurrent_files` limit
+- staging processes sharing cache state and the same limit share that budget,
+  including multiple GPU ranks on one machine
+- source order, full-selection reservations, cache reuse, and atomic file
+  promotion are preserved; errors and interrupts drain active transfers before
+  releasing reservations
 
 Previous versions are recorded in the [release history](RELEASES.md).
 
@@ -205,6 +207,7 @@ dataset:
     download:
       backend: azcopy            # Or sdk
       fallback_to_sdk: true
+      max_concurrent_files: 4    # Initial indexed staging; shared across cache state
       azcopy:
         concurrency: null       # Inherit environment or AzCopy defaults
         buffer_gb: null
@@ -341,6 +344,18 @@ and reserve their local files. Build core's indexed dataset inside that context
 and finish its reader and workers before exiting. Concrete classes choose
 whether to use this utility. Workers receive local paths and metadata; the
 reservation context and prefetch controller belong to the trainer.
+
+Initial staging uses up to four concurrent file transfers by default. Set
+`dataset.azure.download.max_concurrent_files` to a positive integer; `1` gives
+sequential staging. All staging processes sharing the cache state must use the
+same limit. This bounds staging across GPU ranks without multiplying the file
+transfer budget by the rank count. The complete active selection is reserved
+before staging starts, and source and shard order stay unchanged.
+
+Training prefetch keeps its separate `prefetch.max_concurrent_downloads` limit.
+SDK and AzCopy concurrency still controls requests within each file transfer.
+Project-specific placeholder scans and SHA-256 verification run after staging;
+their caching and parallelism belong in the concrete dataset wrapper.
 
 `dataset.track_shard_progress: true` retains shard IDs after transforms. Record
 completed batches through `record_shard_consumption()` and pass the resulting

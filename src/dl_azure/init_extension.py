@@ -23,6 +23,7 @@ def _azure_config_template() -> str:
     "download": {
       "backend": "azcopy",
       "fallback_to_sdk": true,
+      "max_concurrent_files": 4,
       "azcopy": {
         "concurrency": null,
         "buffer_gb": null

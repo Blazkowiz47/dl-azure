@@ -3,6 +3,20 @@
 The main README shows only the latest release. This page preserves the
 release-by-release changes.
 
+## 0.0.29
+
+- initial indexed tar staging uses bounded concurrent downloads, configured
+  with `azure.download.max_concurrent_files` (default `4`; `1` is sequential)
+- OS-backed slots share the staging limit across processes using the same
+  cache state and configuration; source order and full-selection pins remain
+  intact, including custom destinations
+- failed or interrupted batches stop scheduling new work, wait for active
+  transfers, and release reservations and slots during cleanup
+- training prefetch and per-file SDK/AzCopy concurrency retain their own
+  settings; Mobai eligibility and checksum preparation are outside this change
+- generated Azure defaults expose the staging limit; requires
+  `deep-learning-core>=0.1.12,<0.2`
+
 ## 0.0.28
 
 - generic blob-to-file downloads and the shard cache share an AzCopy-first

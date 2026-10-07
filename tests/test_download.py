@@ -282,6 +282,9 @@ def test_transport_settings_apply_to_actual_blob_client() -> None:
 
 @pytest.mark.parametrize("config", [
     {"backend": "other"}, {"fallback_to_sdk": "true"}, {"sdk": []},
+    {"max_concurrent_files": 0}, {"max_concurrent_files": -1},
+    {"max_concurrent_files": True}, {"max_concurrent_files": 1.5},
+    {"max_concurrent_files": "4"},
     {"sdk": {"max_concurrency": 0}}, {"sdk": {"max_concurrency": True}},
     {"sdk": {"connection_pool_size": 1.5}},
     {"sdk": {"read_timeout_seconds": float("nan")}},

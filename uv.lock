@@ -799,7 +799,7 @@ wheels = [
 
 [[package]]
 name = "deep-learning-azure"
-version = "0.0.28"
+version = "0.0.29"
 source = { editable = "." }
 dependencies = [
     { name = "azure-ai-ml" },

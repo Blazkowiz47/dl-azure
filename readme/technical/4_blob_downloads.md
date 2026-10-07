@@ -30,6 +30,7 @@ dataset:
     download:
       backend: azcopy
       fallback_to_sdk: true
+      max_concurrent_files: 4
       azcopy:
         executable: azcopy
         concurrency: null
@@ -125,9 +126,17 @@ Explicit values in `download.sdk` take precedence. Cache retry and backoff
 settings still apply to whole-file attempts; this path does not use the
 preprocessing AzCopy wrapper's separate retry loop.
 
-`prefetch.max_concurrent_downloads` limits files in flight. SDK and AzCopy
-concurrency limits requests within each transfer. Memory and request load grow
-with both values; AzCopy buffer settings and transfer caps apply per command.
+`download.max_concurrent_files` limits initial indexed staging. It defaults to
+`4` and accepts positive integers; `1` stages sequentially. OS file locks in the
+cache state directory share this budget across staging threads and processes,
+including GPU ranks. All callers sharing cache state must configure the same
+limit. Different cache states have independent staging budgets.
+
+`prefetch.max_concurrent_downloads` separately limits background files in flight
+per prefetch controller. SDK and AzCopy concurrency limits requests within each
+transfer. Memory and request load grow with both file and request concurrency;
+AzCopy buffer settings and transfer caps apply per command. Direct single-file
+downloads and streaming reads keep their existing scheduling.
 
 ## Direct File Downloads
 

@@ -46,7 +46,9 @@ class AzureDownloader:
             config = {}
         if not isinstance(config, dict):
             raise TypeError("azure.download must be a mapping")
-        unknown = set(config) - {"backend", "fallback_to_sdk", "azcopy", "sdk"}
+        unknown = set(config) - {
+            "backend", "fallback_to_sdk", "max_concurrent_files", "azcopy", "sdk"
+        }
         if unknown:
             raise ValueError(f"Unknown azure.download options: {sorted(unknown)}")
         self.backend = config.get("backend", "azcopy")
@@ -55,6 +57,13 @@ class AzureDownloader:
         self.fallback_to_sdk = config.get("fallback_to_sdk", True)
         if not isinstance(self.fallback_to_sdk, bool):
             raise ValueError("azure.download.fallback_to_sdk must be a boolean")
+        self.max_concurrent_files = config.get("max_concurrent_files", 4)
+        if (
+            isinstance(self.max_concurrent_files, bool)
+            or not isinstance(self.max_concurrent_files, int)
+            or self.max_concurrent_files < 1
+        ):
+            raise ValueError("azure.download.max_concurrent_files must be a positive integer")
 
         self.sdk = {
             "max_concurrency": 32,

@@ -564,6 +564,176 @@ def test_indexed_source_context_reserves_whole_selection_before_download(
     assert blobs.calls == [_url("b"), _url("unrelated"), _url("a")]
 
 
+@pytest.mark.parametrize("limit", [1, 2, 4])
+def test_initial_staging_bounds_parallel_transfers_and_preserves_order(
+    tmp_path: Path, blobs: Any, limit: int
+) -> None:
+    cache = AzureShardCache(
+        str(tmp_path / "cache"),
+        cache_size_bytes=10240 * 6,
+        download_config={"max_concurrent_files": limit},
+    )
+    urls = [_url(name) for name in "abcde"] + [_url("b").replace("secret", "renewed")]
+    blobs.gate.clear()
+    with ThreadPoolExecutor(max_workers=1) as supervisor:
+        future = supervisor.submit(cache.ensure_many, urls)
+        try:
+            deadline = time.monotonic() + 3
+            while blobs.active < limit:
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            assert not future.done()
+            assert len(list(cache.pin_dir.glob("*.pin"))) >= len(urls)
+        finally:
+            blobs.gate.set()
+        paths = future.result(timeout=5)
+    assert paths == [cache.local_path(url) for url in urls]
+    assert all(path.is_file() for path in paths)
+    assert blobs.peak == limit
+    assert len(blobs.calls) == 5  # Renewing a SAS does not download the shard twice.
+    assert cache.ensure_many(urls) == paths
+    assert len(blobs.calls) == 5
+    assert not list(cache.pin_dir.glob("*.pin"))
+    assert not list(cache.part_dir.iterdir())
+
+
+def test_initial_staging_wrapper_preserves_source_metadata(
+    tmp_path: Path, blobs: Any, monkeypatch: Any
+) -> None:
+    from dl_azure.datasets import AzureStreamingTarShardWrapper
+
+    class Wrapper(AzureStreamingTarShardWrapper):
+        def transform(self, file_dict: dict[str, Any], split: str) -> dict[str, Any]:
+            return file_dict
+
+    monkeypatch.setattr(
+        "dl_azure.datasets.base.AzureClientService", lambda config: SimpleNamespace()
+    )
+    wrapper = Wrapper({
+        "account_name": "demo", "container_name": "data",
+        "azure_config_path": str(tmp_path / "missing.json"), "auto_split": False,
+        "azure": {"download": {"max_concurrent_files": 2}},
+        "cache": {"cache_dir": str(tmp_path / "cache")},
+    })
+    sources = [
+        {"name": "first", "weight": 2, "shards": [
+            {"path": _url("c"), "samples": 4}, {"path": _url("a"), "samples": 2},
+        ]},
+        {"name": "ignored", "weight": 0, "shards": [{"path": _url("ignored")}]},
+        {"name": "second", "weight": 1, "shards": [{"path": _url("b")}]},
+    ]
+    cache = wrapper.create_shard_cache()
+    with wrapper.cached_shard_sources(sources) as local:
+        assert [source["name"] for source in local] == ["first", "second"]
+        assert [source["weight"] for source in local] == [2, 1]
+        shards = [shard for source in local for shard in source["shards"]]
+        assert [shard["path"] for shard in shards] == [
+            str(cache.local_path(_url(name))) for name in "cab"
+        ]
+        assert [shard.get("samples") for shard in shards] == [4, 2, None]
+        assert all("sig=" not in shard["public_url"] for shard in shards)
+        assert list(cache.pin_dir.glob("*.pin"))
+    assert sources[0]["shards"][0]["path"] == _url("c")
+    assert set(blobs.calls) == {_url(name) for name in "abc"}
+    assert not list(cache.pin_dir.glob("*.pin"))
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt])
+def test_initial_staging_error_waits_for_active_transfers_before_unpinning(
+    tmp_path: Path, blobs: Any, monkeypatch: Any, error_type: type[BaseException]
+) -> None:
+    cache = AzureShardCache(
+        str(tmp_path / "cache"), cache_size_bytes=10240 * 3,
+        download_config={"max_concurrent_files": 2},
+    )
+    original = cache.ensure
+    failed = threading.Event()
+
+    def ensure(url: str) -> Path:
+        if url == _url("bad"):
+            assert blobs.entered.wait(3)
+            failed.set()
+            raise error_type("intentional staging failure")
+        return original(url)
+
+    monkeypatch.setattr(cache, "ensure", ensure)
+    blobs.gate.clear()
+    with ThreadPoolExecutor(max_workers=1) as supervisor:
+        future = supervisor.submit(cache.ensure_many, [_url(name) for name in ("a", "bad", "unused")])
+        try:
+            assert failed.wait(3)
+            assert not future.done()
+            assert list(cache.pin_dir.glob("*.pin"))
+        finally:
+            blobs.gate.set()
+        with pytest.raises(error_type, match="intentional staging failure"):
+            future.result(timeout=5)
+    assert blobs.calls == [_url("a")]
+    assert not list(cache.pin_dir.glob("*.pin"))
+    assert not list(cache.part_dir.iterdir())
+    assert not list(cache.cache_dir.glob("*.part"))
+    assert cache.ensure_many([_url("a"), _url("unused")])
+
+
+def _stage_in_process(
+    cache_dir: str, state_dir: str, prefix: str, barrier: Any,
+    gate: Any, active: Any, peak: Any, counter_lock: Any, results: Any,
+) -> None:
+    class Cache(AzureShardCache):
+        def ensure(self, url: str) -> Path:
+            with counter_lock:
+                active.value += 1
+                peak.value = max(peak.value, active.value)
+            try:
+                if not gate.wait(10):
+                    raise TimeoutError("Test did not release staging")
+                return self.local_path(url)
+            finally:
+                with counter_lock:
+                    active.value -= 1
+
+    cache = Cache(
+        cache_dir, state_dir=state_dir, cache_size_bytes=10240 * 6,
+        lock_timeout_seconds=5, download_config={"max_concurrent_files": 2},
+    )
+    urls = [_url(f"{prefix}{index}") for index in range(3)]
+    barrier.wait(timeout=15)
+    results.put(cache.ensure_many(urls) == [cache.local_path(url) for url in urls])
+
+
+def test_initial_staging_budget_is_shared_across_processes(tmp_path: Path) -> None:
+    context = multiprocessing.get_context("spawn")
+    barrier, gate = context.Barrier(3), context.Event()
+    active, peak = context.Value("i", 0), context.Value("i", 0)
+    counter_lock, results = context.Lock(), context.Queue()
+    processes = [context.Process(target=_stage_in_process, args=(
+        str(tmp_path / name), str(tmp_path / "shared-state"), name, barrier,
+        gate, active, peak, counter_lock, results,
+    )) for name in ("rank0", "rank1")]
+    for process in processes:
+        process.start()
+    try:
+        barrier.wait(timeout=15)
+        deadline = time.monotonic() + 3
+        while active.value < 2:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        time.sleep(0.1)
+        assert active.value == peak.value == 2
+    finally:
+        gate.set()
+        for process in processes:
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join()
+    assert all(process.exitcode == 0 for process in processes)
+    assert results.get(timeout=2) is True
+    assert results.get(timeout=2) is True
+    assert peak.value == 2
+    assert not list((tmp_path / "shared-state/pins").glob("*.pin"))
+
+
 def test_wrapper_path_hook_decodes_blob_name_once(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

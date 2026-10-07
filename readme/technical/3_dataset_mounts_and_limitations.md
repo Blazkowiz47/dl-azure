@@ -166,6 +166,25 @@ Supply the selected weighted sources from `get_shard_sources(split)` once to
 and yields local paths with public shard URLs and logical source metadata.
 Every selected file stays reserved until the context exits.
 
+Initial staging runs file transfers concurrently using
+`dataset.azure.download.max_concurrent_files` (default `4`). Set it to `1` for
+sequential staging. Staging processes sharing cache state and the same limit
+share OS-backed slots, so ranks on one machine do not each get a separate file
+transfer budget. All selected paths are pinned before scheduling any transfer.
+The staging queue is bounded, and completion order does not change source,
+shard, or sample ordering. Cache hits and renewed SAS URLs reuse existing files.
+
+On an error or interrupt, staging stops scheduling new work and drains active
+transfers before releasing pins and slots. Existing cache retries, disk
+admission, destination hooks, and atomic promotion still apply. The limit is
+independent of training prefetch and SDK/AzCopy request concurrency; see
+[download settings](4_blob_downloads.md#sdk-settings-and-validation).
+
+Direct cache consumers can use `cache.ensure_many(urls)` for the same ordered,
+bounded staging. Its pins cover only the batch; retaining returned paths needs
+caller-owned reservations. Placeholder eligibility and project-specific
+SHA-256 checks remain preparation steps in the concrete dataset wrapper.
+
 ```python
 from torch.utils.data import DataLoader
 
